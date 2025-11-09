@@ -54,30 +54,56 @@ All subvolumes exist as siblings at the top level (subvolid=5) in a flat structu
 
 ### 1.1 Create System Backup
 
-Create a full system backup to an external drive before starting:
+Create a full system backup to Synology NAS before starting.
+
+**Prerequisites - NFS Configuration on Synology:**
+Before mounting, ensure your Synology NFS share is configured correctly:
+1. Go to: Control Panel → Shared Folder → Select backup folder → Edit → NFS Permissions
+2. Edit your NFS rule and verify:
+   - **Squash:** Must be set to **"No mapping"**
+   - **Security:** "sys" is fine
+   - **Privilege:** "Read/Write"
+3. This ensures file ownership and permissions are preserved correctly
+
+**Mount NFS share and create backup:**
 
 ```bash
-# Mount external drive
+# Mount Synology NAS via NFS
 sudo mkdir -p /mnt/backup
-sudo mount /dev/your-external-drive /mnt/backup
+sudo mount -t nfs <nas-ip>:/volume1/your/backup/folder /mnt/backup
 
-# Option A: Using rsync (recommended for simplicity)
+# Verify NFS mount succeeded
+df -h | grep backup
+mount | grep nfs
+
+# Test that ownership preservation works
+sudo touch /mnt/backup/test-root-file
+sudo chown root:root /mnt/backup/test-root-file
+sudo chmod 600 /mnt/backup/test-root-file
+ls -la /mnt/backup/test-root-file
+# Should show: -rw------- 1 root root ...
+# If it shows a different user (like admin), your NFS squash setting is wrong!
+sudo rm /mnt/backup/test-root-file
+
+# Create full system backup using rsync
 sudo rsync -aAXHv --info=progress2 / /mnt/backup/system-backup-$(date +%Y%m%d)/ \
   --exclude={'/dev/*','/proc/*','/sys/*','/tmp/*','/run/*','/mnt/*','/media/*','/lost+found','/swap.img'}
-
-# Option B: Using btrfs snapshot (if backup drive is also btrfs)
-# First mount the current root filesystem
-sudo mkdir -p /mnt/current
-sudo mount -t btrfs -o subvolid=5 /dev/nvme0n1p5 /mnt/current
-sudo btrfs subvolume snapshot -r /mnt/current /mnt/backup/root-backup-$(date +%Y%m%d)
-sudo umount /mnt/current
 ```
+
+**Note:** This will take 30-60 minutes for ~134GB depending on network speed. Progress is shown by rsync.
 
 **Verify backup integrity** before proceeding:
 ```bash
 du -sh /mnt/backup/system-backup-*  # Should show ~134GB
 ls -la /mnt/backup/system-backup-*/home  # Verify your user data is there
 ls -la /mnt/backup/system-backup-*/etc  # Verify system configs present
+
+# Verify critical file permissions were preserved
+ls -la /mnt/backup/system-backup-*/etc/shadow
+# Should show: -rw-r----- root shadow (NOT admin:users)
+
+ls -la /mnt/backup/system-backup-*/etc/fstab
+# Should show: -rw-r--r-- root root (NOT admin:users)
 ```
 
 ### 1.2 Document Current Configuration
@@ -101,8 +127,8 @@ du -sh /var/log > ~/log-size.backup
 du -sh /var/cache > ~/cache-size.backup
 du -sh /var/lib/libvirt 2>/dev/null > ~/libvirt-size.backup || echo "No libvirt" > ~/libvirt-size.backup
 
-# Keep these files safe - copy them to backup drive too
-cp ~/*.backup /mnt/backup/
+# Keep these files safe - copy them to NAS backup too
+cp ~/*.backup /mnt/backup/system-backup-$(date +%Y%m%d)/
 ```
 
 ### 1.3 Check Current Swapfile
