@@ -86,7 +86,7 @@ ls -la /mnt/backup/test-root-file
 sudo rm /mnt/backup/test-root-file
 
 # Create full system backup using rsync
-sudo rsync -aAXHv --info=progress2 / /mnt/backup/system-backup-$(date +%Y%m%d)/ \
+sudo rsync -aAXHv --info=progress2 --sparse --partial --append-verify / /mnt/backup/system-backup-$(date +%Y%m%d)/ \
   --exclude={'/dev/*','/proc/*','/sys/*','/tmp/*','/run/*','/mnt/*','/media/*','/lost+found','/swap.img'}
 ```
 
