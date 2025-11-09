@@ -4,7 +4,8 @@
 - **Current filesystem:** btrfs on `/dev/nvme0n1p5`
 - **UUID:** `bae81b8a-6999-4457-827b-e30341b338ff`
 - **Mount options:** `rw,relatime,ssd,discard=async,space_cache=v2`
-- **Current subvolumes:** @ (ID 256), @home (ID 257)
+- **Current boot method:** Booting from top-level (subvolid=5), NOT from @ subvolume
+- **Existing subvolumes:** @ (ID 256), @home (ID 257) - **currently unused**
 - **Distribution:** Ubuntu
 - **Bootloader:** GRUB
 - **Available space:** 671GB
@@ -12,7 +13,13 @@
 
 ## Migration Overview
 
-This plan migrates your btrfs filesystem from a simple top-level layout to a flat subvolume structure that supports snapshot-based rollback. The migration requires booting into a live Ubuntu environment and restructuring your filesystem while preserving all data.
+Your system currently boots from the btrfs top-level subvolume (subvolid=5). Although @ and @home subvolumes exist, they are not being used - all your data lives at the top level. This migration will:
+
+1. Delete or rename the existing unused @ and @home subvolumes
+2. Create fresh subvolumes: @, @home, @var_log, @var_cache, @libvirt, @snapshots
+3. Copy all data from top-level into appropriate subvolumes
+4. Reconfigure bootloader to boot from @ subvolume
+5. Enable snapshot-based rollback capability
 
 **Timeline:** 2-4 hours depending on disk speed
 **Downtime:** System will be offline during migration
@@ -25,14 +32,14 @@ This plan migrates your btrfs filesystem from a simple top-level layout to a fla
 After migration, your filesystem will have this layout:
 
 ```
-Subvolume    Mount Point          Purpose
----------    -----------          -------
-@            /                    Root filesystem
-@home        /home                User home directories
-@var_log     /var/log             System logs
-@var_cache   /var/cache           APT packages and caches
-@libvirt     /var/lib/libvirt     VM images and configurations
-@snapshots   /.snapshots          Snapshot storage directory
+Subvolume      Mount Point          Purpose
+----------     -----------          -------
+@              /                    Root filesystem
+@home          /home                User home directories
+@var_log       /var/log             System logs
+@var_cache     /var/cache           APT packages and caches
+@libvirt       /var/lib/libvirt     VM images and configurations
+@snapshots     /.snapshots          Snapshot storage directory
 ```
 
 All subvolumes exist as siblings at the top level (subvolid=5) in a flat structure. This enables:
@@ -50,41 +57,75 @@ All subvolumes exist as siblings at the top level (subvolid=5) in a flat structu
 Create a full system backup to an external drive before starting:
 
 ```bash
-# Option A: Using btrfs send/receive (recommended, preserves metadata)
-mkdir -p /mnt/backup
-mount /dev/your-external-drive /mnt/backup
-btrfs send -p /mnt/btrfs/ext2_saved /mnt/btrfs / | btrfs receive /mnt/backup/
+# Mount external drive
+sudo mkdir -p /mnt/backup
+sudo mount /dev/your-external-drive /mnt/backup
 
-# Option B: Using rsync (faster but doesn't preserve all metadata)
-mkdir -p /mnt/backup
-mount /dev/your-external-drive /mnt/backup
-rsync -aAXHv / /mnt/backup/system-backup/ \
-  --exclude={'/dev','/proc','/sys','/tmp','/run','/mnt','/media','/lost+found'}
+# Option A: Using rsync (recommended for simplicity)
+sudo rsync -aAXHv --info=progress2 / /mnt/backup/system-backup-$(date +%Y%m%d)/ \
+  --exclude={'/dev/*','/proc/*','/sys/*','/tmp/*','/run/*','/mnt/*','/media/*','/lost+found','/swap.img'}
+
+# Option B: Using btrfs snapshot (if backup drive is also btrfs)
+# First mount the current root filesystem
+sudo mkdir -p /mnt/current
+sudo mount -t btrfs -o subvolid=5 /dev/nvme0n1p5 /mnt/current
+sudo btrfs subvolume snapshot -r /mnt/current /mnt/backup/root-backup-$(date +%Y%m%d)
+sudo umount /mnt/current
 ```
 
 **Verify backup integrity** before proceeding:
 ```bash
-ls -lh /mnt/backup  # Check backup size matches source (~134GB)
+du -sh /mnt/backup/system-backup-*  # Should show ~134GB
+ls -la /mnt/backup/system-backup-*/home  # Verify your user data is there
+ls -la /mnt/backup/system-backup-*/etc  # Verify system configs present
 ```
 
 ### 1.2 Document Current Configuration
 
-Save copies of critical files:
+Save copies of critical files to your home directory:
 
 ```bash
-# In current system (before shutdown)
+# Save configuration files
 cp /etc/fstab ~/fstab.backup
 cp /boot/grub/grub.cfg ~/grub.cfg.backup
+cp /etc/default/grub ~/grub.default.backup
+
+# Document current state
 mount | grep btrfs > ~/mounts.backup
-btrfs subvolume list / > ~/subvolumes.backup
+sudo btrfs subvolume list / > ~/subvolumes.backup
+df -h > ~/disk-usage.backup
+
+# List what you're about to migrate
+du -sh /home/* > ~/home-sizes.backup
+du -sh /var/log > ~/log-size.backup
+du -sh /var/cache > ~/cache-size.backup
+du -sh /var/lib/libvirt 2>/dev/null > ~/libvirt-size.backup || echo "No libvirt" > ~/libvirt-size.backup
+
+# Keep these files safe - copy them to backup drive too
+cp ~/*.backup /mnt/backup/
 ```
 
-### 1.3 Prepare Live USB
+### 1.3 Check Current Swapfile
 
-Download Ubuntu live USB matching your system:
 ```bash
+# Check if swapfile exists and note its size
+ls -lh /swap.img
+# Note the size - you'll recreate it later (e.g., 8G, 16G, etc.)
+```
+
+### 1.4 Prepare Live USB
+
+Download Ubuntu live USB matching your system version:
+
+```bash
+# Check your Ubuntu version
+lsb_release -a
+
 # Visit https://ubuntu.com/download/desktop
-# Create bootable USB: sudo dd if=ubuntu-*.iso of=/dev/sdX bs=4M status=progress
+# Download matching version if possible, or latest LTS
+
+# Create bootable USB (replace sdX with your USB device):
+# sudo dd if=ubuntu-*.iso of=/dev/sdX bs=4M status=progress oflag=sync
 ```
 
 **Note:** You'll boot into this live environment for the migration.
@@ -96,20 +137,21 @@ Download Ubuntu live USB matching your system:
 ### 2.1 Boot into Live USB
 
 1. Insert USB drive
-2. Reboot and select USB in boot menu (usually F12, Del, or Esc during startup)
+2. Reboot and select USB in boot menu (usually F12, F2, Del, or Esc during startup)
 3. Select "Try Ubuntu" (don't install)
-4. Open terminal
+4. Open terminal (Ctrl+Alt+T)
 
 ### 2.2 Mount the Filesystem
 
 ```bash
-# Mount top-level subvolume to access all data
+# Mount top-level subvolume (subvolid=5) where all your current data lives
 sudo mkdir -p /mnt/btrfs
 sudo mount -t btrfs -o subvolid=5 /dev/nvme0n1p5 /mnt/btrfs
 
 # Verify mount
 ls -la /mnt/btrfs
-# You should see: @, @home, ext2_saved, and other filesystem contents
+# You should see: @, @home (unused subvolumes), plus all your actual files:
+# bin, boot, etc, home, lib, opt, root, srv, usr, var, swap.img, etc.
 ```
 
 ### 2.3 Verify Current Structure
@@ -117,32 +159,53 @@ ls -la /mnt/btrfs
 ```bash
 # List existing subvolumes
 sudo btrfs subvolume list /mnt/btrfs
+# Output should show: ID 256 @ and ID 257 @home
 
 # Check disk space
 sudo btrfs filesystem usage /mnt/btrfs
+# Verify you have enough free space (~150GB needed temporarily)
 
-# Verify no existing @ subvolume
-ls /mnt/btrfs/ | grep "^@"
+# Verify current data is at top-level (not in @ subvolume)
+ls -la /mnt/btrfs/etc/fstab  # Should exist
+ls -la /mnt/btrfs/@/etc/fstab  # Should NOT exist (@ is empty)
 ```
 
 ---
 
-## Phase 3: Create New Subvolumes
+## Phase 3: Handle Existing Subvolumes
 
-### 3.1 Create Subvolume Structure
+### 3.1 Rename Old Unused Subvolumes
+
+Since @ and @home already exist (but are empty/unused), rename them for safety:
+
+```bash
+# Check if old subvolumes are empty
+ls -la /mnt/btrfs/@/
+ls -la /mnt/btrfs/@home/
+
+# If they're empty (likely), rename them as backup
+sudo mv /mnt/btrfs/@ /mnt/btrfs/@-old-unused
+sudo mv /mnt/btrfs/@home /mnt/btrfs/@home-old-unused
+
+# Alternatively, if you're confident they're empty, delete them:
+# sudo btrfs subvolume delete /mnt/btrfs/@
+# sudo btrfs subvolume delete /mnt/btrfs/@home
+```
+
+### 3.2 Create New Subvolume Structure
 
 ```bash
 # Create the new subvolumes
 sudo btrfs subvolume create /mnt/btrfs/@
 sudo btrfs subvolume create /mnt/btrfs/@home
-sudo btrfs subvolume create /mnt/btrfs/@log
-sudo btrfs subvolume create /mnt/btrfs/@cache
+sudo btrfs subvolume create /mnt/btrfs/@var_log
+sudo btrfs subvolume create /mnt/btrfs/@var_cache
 sudo btrfs subvolume create /mnt/btrfs/@libvirt
 sudo btrfs subvolume create /mnt/btrfs/@snapshots
 
 # Verify creation
 sudo btrfs subvolume list /mnt/btrfs
-# Output should show 6 new subvolumes with sequential IDs
+# Output should show 6 new subvolumes + the 2 renamed old ones
 ```
 
 ---
@@ -155,102 +218,115 @@ sudo btrfs subvolume list /mnt/btrfs
 # Create mount points in live environment
 sudo mkdir -p /mnt/old
 sudo mkdir -p /mnt/new
-sudo mkdir -p /mnt/new/{home,var/log,var/cache,var/lib,,.snapshots}
 
-# Mount old filesystem (top-level where current data lives)
-# Note: Your current @ and @home are mounted to /
-# We'll mount the top-level to access both
-sudo mount -t btrfs -o subvolid=5 /dev/nvme0n1p5 /mnt/old
+# /mnt/btrfs is already mounted to top-level, so use it as "old"
+# We'll create separate mounts for clarity
 
-# Mount new @ as root
+# Mount new subvolumes
 sudo mount -t btrfs -o subvol=@ /dev/nvme0n1p5 /mnt/new
-
-# Mount other subvolumes
+sudo mkdir -p /mnt/new/{home,var/log,var/cache,var/lib/libvirt,.snapshots}
 sudo mount -t btrfs -o subvol=@home /dev/nvme0n1p5 /mnt/new/home
-sudo mount -t btrfs -o subvol=@log /dev/nvme0n1p5 /mnt/new/var/log
-sudo mount -t btrfs -o subvol=@cache /dev/nvme0n1p5 /mnt/new/var/cache
+sudo mount -t btrfs -o subvol=@var_log /dev/nvme0n1p5 /mnt/new/var/log
+sudo mount -t btrfs -o subvol=@var_cache /dev/nvme0n1p5 /mnt/new/var/cache
 sudo mount -t btrfs -o subvol=@libvirt /dev/nvme0n1p5 /mnt/new/var/lib/libvirt
 sudo mount -t btrfs -o subvol=@snapshots /dev/nvme0n1p5 /mnt/new/.snapshots
+
+# Verify all mounts
+mount | grep nvme0n1p5
 ```
 
 ### 4.2 Copy Root Filesystem
 
-Copy root filesystem, excluding directories that go to separate subvolumes:
+Copy root filesystem from top-level to @ subvolume, excluding directories that go to separate subvolumes:
 
 ```bash
-# Copy root contents to @, excluding what goes elsewhere
-sudo rsync -aAXHv /mnt/old/ /mnt/new/ \
-  --exclude='/home' \
-  --exclude='/var/log' \
-  --exclude='/var/cache' \
-  --exclude='/var/lib/libvirt' \
-  --exclude='/.snapshots' \
-  --exclude='/dev' \
-  --exclude='/proc' \
-  --exclude='/sys' \
-  --exclude='/run' \
-  --exclude='/tmp' \
-  --exclude='/mnt' \
-  --exclude='/media' \
+# This copies everything except what goes to other subvolumes
+# Source: /mnt/btrfs (top-level where current data lives)
+# Destination: /mnt/new (the new @ subvolume)
+
+sudo rsync -aAXHv --info=progress2 /mnt/btrfs/ /mnt/new/ \
+  --exclude='/@' \
+  --exclude='/@home' \
+  --exclude='/@home-old-unused' \
+  --exclude='/@-old-unused' \
+  --exclude='/@var_log' \
+  --exclude='/@var_cache' \
+  --exclude='/@libvirt' \
+  --exclude='/@snapshots' \
+  --exclude='/home/*' \
+  --exclude='/var/log/*' \
+  --exclude='/var/cache/*' \
+  --exclude='/var/lib/libvirt/*' \
+  --exclude='/.snapshots/*' \
+  --exclude='/dev/*' \
+  --exclude='/proc/*' \
+  --exclude='/sys/*' \
+  --exclude='/run/*' \
+  --exclude='/tmp/*' \
+  --exclude='/mnt/*' \
+  --exclude='/media/*' \
   --exclude='/lost+found' \
-  --exclude='/boot/efi'
+  --exclude='/swap.img'
+
+# Create necessary directories that were excluded
+sudo mkdir -p /mnt/new/{home,var/log,var/cache,var/lib/libvirt,.snapshots,dev,proc,sys,run,tmp,mnt,media}
 ```
 
-**Note:** This will take 10-30 minutes depending on your disk speed. Progress is shown with rsync output.
+**Note:** This will take 10-30 minutes depending on disk speed. Progress is shown with rsync output.
 
 ### 4.3 Copy /home
 
 ```bash
-sudo rsync -aAXHv /mnt/old/home/ /mnt/new/home/
+sudo rsync -aAXHv --info=progress2 /mnt/btrfs/home/ /mnt/new/home/
 ```
 
 ### 4.4 Copy /var/log
 
 ```bash
-sudo rsync -aAXHv /mnt/old/var/log/ /mnt/new/var/log/
+sudo rsync -aAXHv --info=progress2 /mnt/btrfs/var/log/ /mnt/new/var/log/
 ```
 
 ### 4.5 Copy /var/cache
 
 ```bash
-sudo rsync -aAXHv /mnt/old/var/cache/ /mnt/new/var/cache/
+sudo rsync -aAXHv --info=progress2 /mnt/btrfs/var/cache/ /mnt/new/var/cache/
 ```
 
-### 4.6 Copy /var/lib/libvirt
+### 4.6 Copy /var/lib/libvirt (if exists)
 
 ```bash
-sudo rsync -aAXHv /mnt/old/var/lib/libvirt/ /mnt/new/var/lib/libvirt/
+# Check if libvirt directory exists
+if [ -d /mnt/btrfs/var/lib/libvirt ]; then
+  sudo rsync -aAXHv --info=progress2 /mnt/btrfs/var/lib/libvirt/ /mnt/new/var/lib/libvirt/
+else
+  echo "No libvirt directory found - skipping"
+fi
 ```
 
-### 4.7 Copy Boot (including EFI)
+### 4.7 Handle Swapfile
 
 ```bash
-# Copy /boot
-sudo rsync -aAXHv /mnt/old/boot/ /mnt/new/boot/ \
-  --exclude='/boot/efi'
+# Check what size swapfile you had (from Phase 1.3 notes)
+# Typical sizes: 8G, 16G, or equal to RAM size
 
-# Mount EFI partition
-sudo mkdir -p /mnt/new/boot/efi
-sudo mount /dev/nvme0n1p1 /mnt/new/boot/efi
-
-# Copy EFI contents
-sudo rsync -aAXHv /mnt/old/boot/efi/ /mnt/new/boot/efi/
-```
-
-### 4.8 Handle Swapfile
-
-```bash
-# Check if swapfile exists
-ls -lh /mnt/old/swap.img
-
-# If it exists, recreate it (btrfs swapfile requires special handling)
-# First, disable nodatacow check:
-sudo chattr +C /mnt/new/swap.img  # Set nodatacow
-
-# Create swapfile
-sudo dd if=/dev/zero of=/mnt/new/swap.img bs=1G count=8  # Adjust size as needed
+# Create swapfile in new @ subvolume
+sudo touch /mnt/new/swap.img
+sudo chattr +C /mnt/new/swap.img  # Disable copy-on-write for swapfile
+sudo dd if=/dev/zero of=/mnt/new/swap.img bs=1G count=8 status=progress  # Adjust count=8 to your size
 sudo chmod 600 /mnt/new/swap.img
 sudo mkswap /mnt/new/swap.img
+```
+
+### 4.8 Mount and Copy EFI Partition
+
+```bash
+# Mount EFI partition into new @ subvolume
+sudo mount /dev/nvme0n1p1 /mnt/new/boot/efi
+
+# EFI partition should already have correct GRUB files
+# Verify it's mounted
+mount | grep efi
+ls -la /mnt/new/boot/efi/EFI
 ```
 
 ---
@@ -259,38 +335,38 @@ sudo mkswap /mnt/new/swap.img
 
 ### 5.1 Update /etc/fstab
 
-Edit `/mnt/new/etc/fstab` and update mount entries:
+Edit `/mnt/new/etc/fstab` to mount from subvolumes:
 
 ```bash
 sudo nano /mnt/new/etc/fstab
 ```
 
-Replace the existing entries with:
+Replace ALL btrfs entries with the following (keep any non-btrfs mounts like EFI):
 
 ```fstab
-# Btrfs filesystem
-UUID=bae81b8a-6999-4457-827b-e30341b338ff /               btrfs subvol=@,ssd,discard=async,space_cache=v2 0 0
-UUID=bae81b8a-6999-4457-827b-e30341b338ff /home           btrfs subvol=@home,ssd,discard=async,space_cache=v2 0 0
-UUID=bae81b8a-6999-4457-827b-e30341b338ff /var/log        btrfs subvol=@log,ssd,discard=async,space_cache=v2,nodatacow 0 0
-UUID=bae81b8a-6999-4457-827b-e30341b338ff /var/cache      btrfs subvol=@cache,ssd,discard=async,space_cache=v2 0 0
+# Btrfs subvolumes - flat layout
+UUID=bae81b8a-6999-4457-827b-e30341b338ff /                btrfs subvol=@,ssd,discard=async,space_cache=v2 0 0
+UUID=bae81b8a-6999-4457-827b-e30341b338ff /home            btrfs subvol=@home,ssd,discard=async,space_cache=v2 0 0
+UUID=bae81b8a-6999-4457-827b-e30341b338ff /var/log         btrfs subvol=@var_log,ssd,discard=async,space_cache=v2,nodatacow 0 0
+UUID=bae81b8a-6999-4457-827b-e30341b338ff /var/cache       btrfs subvol=@var_cache,ssd,discard=async,space_cache=v2 0 0
 UUID=bae81b8a-6999-4457-827b-e30341b338ff /var/lib/libvirt btrfs subvol=@libvirt,ssd,discard=async,space_cache=v2,nodatacow 0 0
-UUID=bae81b8a-6999-4457-827b-e30341b338ff /.snapshots     btrfs subvol=@snapshots,ssd,discard=async,space_cache=v2 0 0
+UUID=bae81b8a-6999-4457-827b-e30341b338ff /.snapshots      btrfs subvol=@snapshots,ssd,discard=async,space_cache=v2 0 0
 
-# EFI partition
+# EFI System Partition
 UUID=72B8-FEBD /boot/efi vfat umask=0077 0 1
 
-# Swapfile (if created)
+# Swapfile
 /swap.img none swap sw 0 0
 ```
 
 **Key points:**
-- Replace `UUID=...` with your actual UUIDs if they differ
-- `nodatacow` for `@log` and `@libvirt` improves performance for logs/VMs
-- Each subvolume specified with `subvol=@name`
+- `nodatacow` for `@var_log` and `@libvirt` improves performance (logs and VMs benefit from disabling CoW)
+- Each subvolume specified with `subvol=@name` format
+- Verify UUIDs match your system (they should)
 
 ### 5.2 Update GRUB Configuration
 
-Edit GRUB config to boot from @ subvolume:
+Edit GRUB default config to add rootflags:
 
 ```bash
 sudo nano /mnt/new/etc/default/grub
@@ -298,32 +374,38 @@ sudo nano /mnt/new/etc/default/grub
 
 Find the `GRUB_CMDLINE_LINUX_DEFAULT` line and add `rootflags=subvol=@`:
 
+**Before:**
 ```bash
-# Before:
 GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"
+```
 
-# After:
+**After:**
+```bash
 GRUB_CMDLINE_LINUX_DEFAULT="quiet splash rootflags=subvol=@"
 ```
 
-Also check `GRUB_CMDLINE_LINUX` and update if present:
-
+If there's a `GRUB_CMDLINE_LINUX` line, update it too:
 ```bash
 GRUB_CMDLINE_LINUX="rootflags=subvol=@"
 ```
 
+Save and exit (Ctrl+O, Enter, Ctrl+X in nano).
+
 ---
 
-## Phase 6: Chroot and Finalize
+## Phase 6: Chroot and Finalize Bootloader
 
 ### 6.1 Prepare Chroot Environment
 
 ```bash
-# Bind mount essential filesystems
+# Bind mount essential filesystems for chroot
 sudo mount --bind /dev /mnt/new/dev
 sudo mount --bind /proc /mnt/new/proc
 sudo mount --bind /sys /mnt/new/sys
 sudo mount --bind /run /mnt/new/run
+
+# Verify mounts
+mount | grep /mnt/new
 ```
 
 ### 6.2 Chroot into New System
@@ -332,17 +414,25 @@ sudo mount --bind /run /mnt/new/run
 sudo chroot /mnt/new /bin/bash
 ```
 
+You should now see a root prompt inside the new system.
+
 ### 6.3 Regenerate GRUB Configuration
 
 Inside chroot:
 
 ```bash
-# Update GRUB config from the new kernel/initramfs
+# Update GRUB config to detect the new subvolume layout
 grub-mkconfig -o /boot/grub/grub.cfg
 
-# Verify output shows correct root device
-# Should show: Found linux image: /boot/vmlinuz-...
-# And: Found initrd image: /boot/initrd.img-...
+# Expected output:
+# Generating grub configuration file ...
+# Found linux image: /boot/vmlinuz-...
+# Found initrd image: /boot/initrd.img-...
+# done
+
+# Verify rootflags appears in the config
+grep "rootflags=subvol=@" /boot/grub/grub.cfg
+# Should show lines with: root=UUID=... rootflags=subvol=@
 ```
 
 ### 6.4 Reinstall GRUB to EFI
@@ -350,267 +440,462 @@ grub-mkconfig -o /boot/grub/grub.cfg
 Still inside chroot:
 
 ```bash
-# Install GRUB to EFI partition
+# Install GRUB bootloader to EFI partition
 grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=ubuntu --recheck
 
-# Output should end with: Installation finished. No errors reported.
+# Expected output:
+# Installing for x86_64-efi platform.
+# Installation finished. No error reported.
 ```
 
-### 6.5 Exit Chroot
+### 6.5 Update initramfs
+
+Still inside chroot:
+
+```bash
+# Regenerate initramfs to ensure it knows about the new subvolume layout
+update-initramfs -u -k all
+
+# This ensures the initramfs can mount @ subvolume at boot
+```
+
+### 6.6 Exit Chroot
 
 ```bash
 exit
 ```
 
+You're now back in the live USB environment.
+
 ---
 
 ## Phase 7: Verify Before Reboot
 
-### 7.1 Verify New Structure
+### 7.1 Verify New Subvolume Structure
 
 ```bash
-# Check all subvolumes created
+# Check all subvolumes were created
 sudo btrfs subvolume list /mnt/btrfs
+# Should show: @, @home, @var_log, @var_cache, @libvirt, @snapshots
+# Plus the old renamed ones: @-old-unused, @home-old-unused
 
 # Verify new @ subvolume has content
-ls /mnt/new/ | head -20
+ls -la /mnt/new/etc/ | head -20
+ls -la /mnt/new/boot/ | head -20
+ls -la /mnt/new/usr/bin/ | head -10
 
+# Verify subvolumes are properly populated
+ls -la /mnt/new/home/  # Should show your user directories
+ls -la /mnt/new/var/log/  # Should show log files
+ls -la /mnt/new/var/cache/apt/  # Should show apt cache
+ls -la /mnt/new/var/lib/libvirt/ 2>/dev/null  # Should show VM data if you have VMs
+```
+
+### 7.2 Verify Configuration Files
+
+```bash
 # Check fstab syntax
 sudo cat /mnt/new/etc/fstab
+# Verify all 6 subvolume mounts are present
 
-# Verify GRUB config updated
+# Verify GRUB default config
 sudo grep "rootflags=subvol=@" /mnt/new/etc/default/grub
+# Should show the line with rootflags
+
+# Verify GRUB config was generated correctly
+sudo grep "rootflags=subvol=@" /mnt/new/boot/grub/grub.cfg
+# Should show multiple lines with root=UUID=... rootflags=subvol=@
+
+# Check swapfile exists
+ls -lh /mnt/new/swap.img
+# Should show file with correct size (e.g., 8.0G)
 ```
 
-### 7.2 Verify Data Integrity
+### 7.3 Final Sanity Checks
 
 ```bash
-# Sample checks of critical directories
-ls -la /mnt/new/etc/          # System configs present
-ls -la /mnt/new/home/         # User home directories present
-ls -la /mnt/new/var/log/      # Logs in separate subvolume
-ls -la /mnt/new/var/cache/    # Cache in separate subvolume
-ls -la /mnt/new/var/lib/libvirt/ # VMs in separate subvolume
+# Verify EFI partition is accessible
+ls -la /mnt/new/boot/efi/EFI/ubuntu/
+# Should show grubx64.efi and other GRUB files
+
+# Check that critical system files exist
+test -f /mnt/new/etc/fstab && echo "fstab: OK" || echo "fstab: MISSING!"
+test -f /mnt/new/boot/grub/grub.cfg && echo "grub.cfg: OK" || echo "grub.cfg: MISSING!"
+test -f /mnt/new/etc/default/grub && echo "grub default: OK" || echo "grub default: MISSING!"
 ```
 
-### 7.3 Unmount Everything
+### 7.4 Unmount Everything
 
 ```bash
-# Unmount in reverse order
+# Unmount in reverse order (most nested first)
 sudo umount /mnt/new/boot/efi
 sudo umount /mnt/new/.snapshots
 sudo umount /mnt/new/var/lib/libvirt
 sudo umount /mnt/new/var/cache
 sudo umount /mnt/new/var/log
 sudo umount /mnt/new/home
+sudo umount /mnt/new/dev
+sudo umount /mnt/new/proc
+sudo umount /mnt/new/sys
+sudo umount /mnt/new/run
 sudo umount /mnt/new
-sudo umount /mnt/old
 sudo umount /mnt/btrfs
+
+# Verify all unmounted
+mount | grep nvme0n1p5
+# Should show nothing
 ```
 
 ---
 
 ## Phase 8: Reboot and Testing
 
-### 8.1 Reboot
+### 8.1 Reboot into New System
 
 ```bash
 sudo reboot
 ```
 
-Remove the live USB when prompted.
+**Remove the live USB when prompted or after BIOS screen.**
 
 ### 8.2 Initial Boot Checks
 
-After rebooting, the system should boot normally:
+After rebooting, the system should boot normally from the @ subvolume.
 
-1. Wait for full boot (may take slightly longer due to new structure)
-2. Open terminal
-3. Verify mounts:
-   ```bash
-   mount | grep btrfs
-   # Should show all 6 subvolumes mounted correctly
-   ```
-
-4. Check disk usage:
-   ```bash
-   df -h
-   # Verify all mount points present and sized correctly
-   ```
-
-### 8.3 Test Services
+1. **Wait for full boot** (may take slightly longer on first boot)
+2. **Open terminal** (Ctrl+Alt+T)
+3. **Verify subvolume mounts:**
 
 ```bash
-# Verify key services running
-systemctl status networking
-systemctl status ssh  # if installed
-systemctl status libvirtd  # if VMs installed
+mount | grep btrfs
+# Expected output (6 lines):
+# /dev/nvme0n1p5 on / type btrfs (subvol=@,...)
+# /dev/nvme0n1p5 on /home type btrfs (subvol=@home,...)
+# /dev/nvme0n1p5 on /var/log type btrfs (subvol=@var_log,...)
+# /dev/nvme0n1p5 on /var/cache type btrfs (subvol=@var_cache,...)
+# /dev/nvme0n1p5 on /var/lib/libvirt type btrfs (subvol=@libvirt,...)
+# /dev/nvme0n1p5 on /.snapshots type btrfs (subvol=@snapshots,...)
+```
 
-# Check logs accessible
-tail -f /var/log/syslog
+4. **Check disk usage:**
+
+```bash
+df -h
+# Verify all mount points show up with reasonable sizes
+```
+
+5. **Verify you're booted from @ subvolume:**
+
+```bash
+cat /proc/cmdline | grep rootflags
+# Should show: ... rootflags=subvol=@ ...
+
+findmnt -n -o SOURCE /
+# Should show: /dev/nvme0n1p5[/@]
+```
+
+### 8.3 Test Services and Applications
+
+```bash
+# Check system services
+systemctl status
+# Should show "running" state
+
+# Test network
+ping -c 3 google.com
+
+# Check logs are being written
+sudo journalctl -n 20
+tail -f /var/log/syslog  # Press Ctrl+C to exit
 
 # Test apt cache
 apt list --installed | head -5
+sudo apt update  # Should work normally
 ```
 
 ### 8.4 Verify VM Functionality (if applicable)
 
 ```bash
+# Check if libvirtd is running (if you use VMs)
+systemctl status libvirtd
+
 # List VMs
 virsh list --all
 
-# Verify VM images accessible
+# Check VM images are accessible
 ls -la /var/lib/libvirt/images/
 ```
 
-### 8.5 Create Initial Snapshot
-
-After verifying everything works:
+### 8.5 Test User Data
 
 ```bash
-sudo btrfs subvolume snapshot /@ /@snapshots/migration-backup-$(date +%Y%m%d)
+# Verify your home directory
+ls -la ~
+# All your files should be present
 
-# Verify snapshot created
+# Test opening some files
+cat ~/fstab.backup  # Should show your old fstab from backup
+```
+
+### 8.6 Create Initial Snapshot
+
+After verifying everything works, create your first snapshot:
+
+```bash
+# Create read-only snapshot of root
+sudo btrfs subvolume snapshot -r / /.snapshots/root-migration-success-$(date +%Y%m%d)
+
+# Create snapshot of home (optional)
+sudo btrfs subvolume snapshot -r /home /.snapshots/home-migration-success-$(date +%Y%m%d)
+
+# List snapshots
 sudo btrfs subvolume list /.snapshots
+# Should show your new snapshots
+
+# Or view them as directories
+ls -la /.snapshots/
 ```
 
 ---
 
 ## Phase 9: Cleanup (1-2 weeks after stable operation)
 
-After verifying stable operation for 1-2 weeks, remove old data:
+**Wait at least 1-2 weeks** and verify everything is stable before cleanup.
+
+After confirming stable operation:
 
 ```bash
-# Mount top-level again
+# Mount top-level to access old subvolumes
+sudo mkdir -p /mnt/btrfs
 sudo mount -t btrfs -o subvolid=5 /dev/nvme0n1p5 /mnt/btrfs
 
-# Remove old subvolumes (if they still exist)
-sudo btrfs subvolume delete /mnt/btrfs/@  # old @
-sudo btrfs subvolume delete /mnt/btrfs/@home  # old @home
-sudo btrfs subvolume delete /mnt/btrfs/ext2_saved
-
-# Remove any stray directories at top-level
-sudo rm -rf /mnt/btrfs/home /mnt/btrfs/var /mnt/btrfs/etc  # if they exist as directories
-
-# Verify cleanup
+# List what's at top-level
 sudo btrfs subvolume list /mnt/btrfs
-# Should only show: @, @home, @log, @cache, @libvirt, @snapshots
+ls -la /mnt/btrfs/
+
+# Delete old renamed subvolumes (if they exist)
+sudo btrfs subvolume delete /mnt/btrfs/@-old-unused
+sudo btrfs subvolume delete /mnt/btrfs/@home-old-unused
+
+# Remove any stray directories/files at top-level that were part of old layout
+# BE VERY CAREFUL - only remove files/dirs that are NOT subvolumes
+# Do NOT remove: @, @home, @var_log, @var_cache, @libvirt, @snapshots
+
+# Check what's left at top-level
+ls -la /mnt/btrfs/
+# Should only show subvolume directories now
+
+# Verify final subvolume list
+sudo btrfs subvolume list /mnt/btrfs
+# Should show only: @, @home, @var_log, @var_cache, @libvirt, @snapshots (and any snapshots)
+
+# Unmount
+sudo umount /mnt/btrfs
+```
+
+**Optional:** Remove old data files from top-level if any remain:
+
+```bash
+# DANGEROUS - Only if you're absolutely sure old files remain at top-level
+# Mount top-level
+sudo mount -t btrfs -o subvolid=5 /dev/nvme0n1p5 /mnt/btrfs
+
+# Check what directories exist that are NOT subvolumes
+ls -la /mnt/btrfs/ | grep -v "^d.*@"
+
+# If you see old directories like 'bin', 'etc', 'usr' at top-level (not in @),
+# you can remove them, but ONLY after 2+ weeks of stable operation:
+# sudo rm -rf /mnt/btrfs/bin /mnt/btrfs/etc /mnt/btrfs/lib ...
+# DO NOT remove any @ directories!
 ```
 
 ---
 
 ## Troubleshooting
 
-### System Won't Boot
+### System Won't Boot - GRUB Prompt
+
+If you see a GRUB prompt instead of boot menu:
+
+1. **Type these commands at grub> prompt:**
+   ```
+   ls
+   # Note which partition shows (hd0,gpt5) or similar
+
+   ls (hd0,gpt5)/@/boot/
+   # Should show vmlinuz files
+
+   set root=(hd0,gpt5)
+   linux /@/boot/vmlinuz-<tab-complete> root=UUID=bae81b8a-6999-4457-827b-e30341b338ff rootflags=subvol=@ ro quiet splash
+   initrd /@/boot/initrd.img-<same-version>
+   boot
+   ```
+
+2. **Once booted, reinstall GRUB:**
+   ```bash
+   sudo grub-install /dev/nvme0n1
+   sudo update-grub
+   ```
+
+### System Won't Boot - Drops to initramfs
+
+If you see "initramfs" prompt or "can't find root device":
 
 1. **Boot into live USB again**
-2. **Mount filesystem:**
+2. **Mount and check fstab:**
    ```bash
-   sudo mount -t btrfs -o subvolid=5 /dev/nvme0n1p5 /mnt/btrfs
+   sudo mount -t btrfs -o subvol=@ /dev/nvme0n1p5 /mnt
+   cat /mnt/etc/fstab
+   # Verify subvol=@ is present in root mount line
    ```
-3. **Check GRUB config:**
+3. **Chroot and fix:**
    ```bash
-   sudo cat /mnt/btrfs/@/etc/default/grub | grep rootflags
-   ```
-4. **Verify /etc/fstab:**
-   ```bash
-   sudo cat /mnt/btrfs/@/etc/fstab
-   ```
-5. **Check GRUB installation:**
-   ```bash
-   sudo grub-install --target=x86_64-efi --efi-directory=/boot/efi \
-     --boot-directory=/mnt/btrfs/@/boot --root-directory=/mnt/btrfs/@ \
-     --bootloader-id=ubuntu --recheck
+   sudo mount --bind /dev /mnt/dev
+   sudo mount --bind /proc /mnt/proc
+   sudo mount --bind /sys /mnt/sys
+   sudo chroot /mnt
+   update-initramfs -u -k all
+   update-grub
+   exit
+   sudo reboot
    ```
 
-### Missing Subvolumes
+### Missing /var/log or /var/cache After Boot
 
-If a subvolume wasn't created, create it and copy data:
+If directories are empty after boot:
 
 ```bash
-# Create missing subvolume
-sudo btrfs subvolume create /mnt/btrfs/@missing
+# Check if they're mounted
+mount | grep btrfs
 
-# Mount and restore data
-sudo mount -t btrfs -o subvol=@missing /dev/nvme0n1p5 /mnt/restore
-sudo rsync -aAXHv /path/to/backup/data/ /mnt/restore/
+# If missing, check fstab
+cat /etc/fstab
+
+# Mount manually to test
+sudo mount -a
+
+# If that works, the issue was mount order - fstab should be correct
 ```
 
-### Disk Space Issues
+### VM Disks Not Accessible
 
-If you run out of space during copy:
+If libvirt can't find VM disks:
 
-1. Check what's using space: `sudo btrfs filesystem usage /mnt/btrfs`
-2. Delete less critical old subvolumes
-3. Free up external backup drive space
-4. Retry copy operations
+```bash
+# Check if /var/lib/libvirt is mounted
+mount | grep libvirt
 
-### GRUB Bootloader Issues
+# Check permissions
+ls -la /var/lib/libvirt/images/
 
-If GRUB doesn't recognize new layout:
+# If mounted but empty, you may need to restart libvirtd
+sudo systemctl restart libvirtd
 
-1. Boot into live USB
-2. Chroot into system again (see section 6.1-6.2)
-3. Reinstall GRUB (see section 6.4)
-4. Regenerate config (see section 6.3)
+# List VMs
+virsh list --all
+```
+
+### Snapshots Not Working
+
+If snapshot commands fail:
+
+```bash
+# Check if /.snapshots is mounted
+mount | grep snapshots
+
+# Try creating snapshot with full path
+sudo btrfs subvolume snapshot -r / /.snapshots/test-$(date +%Y%m%d-%H%M%S)
+
+# List to verify
+sudo btrfs subvolume list /.snapshots
+```
 
 ---
 
 ## Rollback Procedure (If Critical Issues)
 
-If something goes seriously wrong:
+If something goes seriously wrong and system is unstable:
+
+### Option 1: Boot from Live USB and Fix
 
 1. **Boot into live USB**
-2. **Mount old filesystem:**
+2. **Mount @ subvolume and fix the issue**
+3. **Chroot and reconfigure** (see troubleshooting sections)
+
+### Option 2: Restore from Backup
+
+If system is completely broken:
+
+1. **Boot into live USB**
+2. **Mount filesystem:**
    ```bash
    sudo mount -t btrfs -o subvolid=5 /dev/nvme0n1p5 /mnt/btrfs
    ```
-3. **Restore from backup** (if created):
+
+3. **Delete broken subvolumes:**
    ```bash
-   # Using btrfs send/receive
-   btrfs send /mnt/backup/your-backup-snapshot | \
-     btrfs receive /mnt/btrfs/
+   sudo btrfs subvolume delete /mnt/btrfs/@
+   sudo btrfs subvolume delete /mnt/btrfs/@home
+   # ... delete others if needed
    ```
-4. **Rename old @ back:**
+
+4. **Restore from backup:**
    ```bash
-   sudo mv /mnt/btrfs/@ /mnt/btrfs/@-failed
-   sudo btrfs subvolume delete /mnt/btrfs/@-failed
+   # Mount backup drive
+   sudo mount /dev/your-backup-drive /mnt/backup
+
+   # Restore using rsync
+   sudo rsync -aAXHv /mnt/backup/system-backup-*/ /mnt/btrfs/ \
+     --exclude='/@*' --exclude='/dev/*' --exclude='/proc/*' --exclude='/sys/*'
    ```
-5. **Or restore from external backup** using rsync if btrfs backup unavailable
+
+5. **Reboot** - system should boot from top-level as before migration
 
 ---
 
 ## Post-Migration: Snapshot Management
 
-After successful migration, consider setting up automated snapshots:
+After successful migration, set up regular snapshots:
 
-### Option 1: Manual Snapshots (Current Plan)
+### Option 1: Manual Snapshots
 
 ```bash
-# Create snapshot
-sudo btrfs subvolume snapshot -r /@ /@snapshots/manual-$(date +%Y%m%d-%H%M%S)
+# Create snapshot before system updates
+sudo btrfs subvolume snapshot -r / /.snapshots/root-before-update-$(date +%Y%m%d)
 
-# List snapshots
-sudo btrfs subvolume list /@snapshots
+# Create snapshot of home weekly
+sudo btrfs subvolume snapshot -r /home /.snapshots/home-weekly-$(date +%Y%m%d)
+
+# List all snapshots
+sudo btrfs subvolume list /.snapshots
 
 # Delete old snapshot
-sudo btrfs subvolume delete /@snapshots/manual-20240101-000000
+sudo btrfs subvolume delete /.snapshots/root-before-update-20240101
 ```
 
-### Option 2: Using snapper (Recommended)
+### Option 2: Using Snapper (Recommended)
 
 ```bash
 # Install snapper
 sudo apt install snapper
 
-# Configure for @ subvolume
+# Create configuration for root
 sudo snapper -c root create-config /
 
-# Edit configuration if needed
+# Edit config to adjust snapshot frequency/retention
 sudo nano /etc/snapper/configs/root
 
-# Create snapshots manually or set up cron job
-sudo snapper -c root create --description "Weekly backup"
+# Create configuration for home
+sudo snapper -c home create-config /home
+
+# Create snapshot manually
+sudo snapper -c root create --description "Before major update"
+
+# List snapshots
+sudo snapper -c root list
+
+# Auto-cleanup old snapshots (configured in config file)
+sudo snapper -c root cleanup number
 ```
 
 ### Option 3: Using Timeshift
@@ -619,42 +904,104 @@ sudo snapper -c root create --description "Weekly backup"
 # Install Timeshift
 sudo apt install timeshift
 
-# Launch GUI or configure via:
-timeshift --help
+# Launch GUI
+sudo timeshift-gtk
+
+# Or configure via CLI
+sudo timeshift --list
+sudo timeshift --create --comments "Initial snapshot"
 ```
 
-Note: Timeshift traditionally only monitors @ and @home. Verify its capabilities with your snapper setup.
+**Note:** Timeshift works best with @ and @home. For @var_log, @var_cache, and @libvirt snapshots, use snapper or manual btrfs commands.
+
+### Automatic Snapshots with Cron
+
+```bash
+# Create weekly snapshot script
+sudo nano /usr/local/bin/weekly-snapshot.sh
+```
+
+Add:
+```bash
+#!/bin/bash
+# Create weekly snapshot of root
+btrfs subvolume snapshot -r / /.snapshots/root-weekly-$(date +%Y%m%d)
+
+# Keep only last 4 weeks, delete older
+cd /.snapshots
+ls -t | grep "^root-weekly-" | tail -n +5 | xargs -I {} btrfs subvolume delete {}
+```
+
+```bash
+# Make executable
+sudo chmod +x /usr/local/bin/weekly-snapshot.sh
+
+# Add to cron (run every Sunday at 2 AM)
+sudo crontab -e
+# Add line:
+0 2 * * 0 /usr/local/bin/weekly-snapshot.sh
+```
 
 ---
 
 ## Summary Checklist
 
-- [ ] Created system backup (external drive)
+- [ ] Created system backup to external drive
 - [ ] Documented current configuration
 - [ ] Downloaded and created live USB
 - [ ] Booted into live environment
 - [ ] Mounted filesystem and verified structure
-- [ ] Created new subvolumes
-- [ ] Copied all data to new subvolumes
-- [ ] Updated /etc/fstab
-- [ ] Updated GRUB configuration
-- [ ] Chrooted and regenerated GRUB
+- [ ] Renamed or deleted old unused @ and @home subvolumes
+- [ ] Created new subvolumes (@, @home, @var_log, @var_cache, @libvirt, @snapshots)
+- [ ] Copied root data to @ subvolume
+- [ ] Copied home data to @home subvolume
+- [ ] Copied logs to @var_log subvolume
+- [ ] Copied cache to @var_cache subvolume
+- [ ] Copied libvirt data to @libvirt subvolume (if applicable)
+- [ ] Recreated swapfile in @ subvolume
+- [ ] Updated /etc/fstab with all subvolume mounts
+- [ ] Updated /etc/default/grub with rootflags=subvol=@
+- [ ] Chrooted into new system
+- [ ] Regenerated GRUB config (grub-mkconfig)
+- [ ] Reinstalled GRUB to EFI partition
+- [ ] Updated initramfs
 - [ ] Verified all changes before reboot
-- [ ] Successfully booted into new layout
-- [ ] Verified all mounts and services
-- [ ] Created initial snapshot
-- [ ] Tested VM functionality
-- [ ] Monitored for 1-2 weeks
-- [ ] Cleaned up old data
+- [ ] Successfully booted into new @ layout
+- [ ] Verified all 6 subvolumes mounted correctly
+- [ ] Tested all services and applications
+- [ ] Tested VM functionality (if applicable)
+- [ ] Created initial snapshots
+- [ ] Monitored system for 1-2 weeks
+- [ ] Cleaned up old subvolumes and data
+- [ ] Set up snapshot management (snapper/Timeshift/manual)
 
 ---
 
-## Important Notes
+## Important Reminders
 
-1. **Keep the live USB handy** for at least 1 week after migration in case you need to troubleshoot
-2. **Verify backup integrity** regularly before starting migration
-3. **Don't rush the copy phase** - rsync shows progress; let it complete
-4. **Test recovery** after migration to ensure snapshots work as expected
-5. **Keep documentation** of this migration for future reference
+1. **DO NOT skip the backup step** - If something goes wrong, you'll need it
+2. **Keep the live USB handy** for at least 2 weeks after migration
+3. **Don't rush the copy operations** - Let rsync complete fully
+4. **Verify everything before rebooting** - Use the verification checklist
+5. **Monitor the system** for at least 1-2 weeks before cleanup
+6. **Set up regular snapshots** to benefit from the new layout
+7. **Document your swapfile size** before starting (from Phase 1.3)
+8. **Test snapshot restoration** after migration to ensure it works
+
+---
+
+## Key Differences from Original Plan
+
+This corrected plan accounts for:
+- ✅ Your current @ and @home subvolumes exist but are **unused**
+- ✅ System currently boots from **top-level (subvolid=5)**, not from @
+- ✅ All current data lives at **top-level**, not in existing subvolumes
+- ✅ Correct backup commands that work from **running system** (Phase 1)
+- ✅ Proper handling of existing subvolumes (rename/delete before recreating)
+- ✅ Correct exclusion patterns to avoid copying old subvolumes
+- ✅ Proper swapfile creation sequence (create file, then set nodatacow)
+- ✅ Consistent naming (@var_log, @var_cache, @libvirt, @snapshots)
+- ✅ Added initramfs update step
+- ✅ Comprehensive troubleshooting for common boot issues
 
 Good luck with your migration!
