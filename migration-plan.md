@@ -16,7 +16,7 @@
 Your system currently boots from the btrfs top-level subvolume (subvolid=5). Although @ and @home subvolumes exist, they are not being used - all your data lives at the top level. This migration will:
 
 1. Delete or rename the existing unused @ and @home subvolumes
-2. Create fresh subvolumes: @, @home, @var_log, @var_cache, @libvirt, @swap, @snapshots
+2. Create fresh subvolumes: @, @home, @var_log, @var_cache, @libvirt_images, @swap, @snapshots
 3. Copy all data from top-level into appropriate subvolumes
 4. Reconfigure bootloader to boot from @ subvolume
 5. Enable snapshot-based rollback capability
@@ -32,15 +32,15 @@ Your system currently boots from the btrfs top-level subvolume (subvolid=5). Alt
 After migration, your filesystem will have this layout:
 
 ```plain
-Subvolume      Mount Point          Purpose
-----------     -----------          -------
-@              /                    Root filesystem
-@home          /home                User home directories
-@var_log       /var/log             System logs
-@var_cache     /var/cache           APT packages and caches
-@libvirt       /var/lib/libvirt     VM images and configurations
-@swap          /swap                Swapfile storage (excluded from snapshots)
-@snapshots     /.snapshots          Snapshot storage directory
+Subvolume         Mount Point              Purpose
+----------        -----------              -------
+@                 /                        Root filesystem
+@home             /home                    User home directories
+@var_log          /var/log                 System logs
+@var_cache        /var/cache               APT packages and caches
+@libvirt_images   /var/lib/libvirt/images  VM disk images
+@swap             /swap                    Swapfile storage (excluded from snapshots)
+@snapshots        /.snapshots              Snapshot storage directory
 ```
 
 All subvolumes exist as siblings at the top level (subvolid=5) in a flat structure. This enables:
@@ -50,7 +50,7 @@ All subvolumes exist as siblings at the top level (subvolid=5) in a flat structu
 - Improved mount option flexibility per subvolume
 
 **NOCOW Configuration:**
-The `@var_log`, `@libvirt`, and `@swap` subvolumes have the NOCOW (no copy-on-write) property set directly on the subvolume. This means all files created in these subvolumes automatically inherit the NOCOW attribute, improving performance for logs, VMs, and swap regardless of mount options.
+The `@var_log`, `@libvirt_images`, and `@swap` subvolumes have the NOCOW (no copy-on-write) property set directly on the subvolume. This means all files created in these subvolumes automatically inherit the NOCOW attribute, improving performance for logs, VM images, and swap regardless of mount options.
 
 ---
 
@@ -129,7 +129,7 @@ df -h > ~/disk-usage.backup
 du -sh /home/* > ~/home-sizes.backup
 du -sh /var/log > ~/log-size.backup
 du -sh /var/cache > ~/cache-size.backup
-du -sh /var/lib/libvirt 2>/dev/null > ~/libvirt-size.backup || echo "No libvirt" > ~/libvirt-size.backup
+du -sh /var/lib/libvirt/images 2>/dev/null > ~/libvirt-images-size.backup || echo "No libvirt images" > ~/libvirt-images-size.backup
 
 # Keep these files safe - copy them to NAS backup too
 cp ~/*.backup /mnt/backup/system-backup-$(date +%Y%m%d)/
@@ -212,14 +212,14 @@ sudo btrfs subvolume create /mnt/btrfs/@
 sudo btrfs subvolume create /mnt/btrfs/@home
 sudo btrfs subvolume create /mnt/btrfs/@var_log
 sudo btrfs subvolume create /mnt/btrfs/@var_cache
-sudo btrfs subvolume create /mnt/btrfs/@libvirt
+sudo btrfs subvolume create /mnt/btrfs/@libvirt_images
 sudo btrfs subvolume create /mnt/btrfs/@swap
 sudo btrfs subvolume create /mnt/btrfs/@snapshots
 
 # Set NOCOW on subvolumes that benefit from it
 # Files created in these subvolumes will automatically inherit NOCOW
 sudo btrfs property set /mnt/btrfs/@var_log nodatacow true
-sudo btrfs property set /mnt/btrfs/@libvirt nodatacow true
+sudo btrfs property set /mnt/btrfs/@libvirt_images nodatacow true
 sudo btrfs property set /mnt/btrfs/@swap nodatacow true
 
 # Verify creation
@@ -227,7 +227,7 @@ sudo btrfs subvolume list /mnt/btrfs
 # Output should show 7 new subvolumes
 
 # Verify NOCOW properties
-lsattr -d /mnt/btrfs/@var_log /mnt/btrfs/@libvirt /mnt/btrfs/@swap
+lsattr -d /mnt/btrfs/@var_log /mnt/btrfs/@libvirt_images /mnt/btrfs/@swap
 # Should show: ---------------C--- for each
 ```
 
@@ -247,11 +247,11 @@ sudo mkdir -p /mnt/new
 
 # Mount new subvolumes
 sudo mount -t btrfs -o subvol=@ /dev/nvme0n1p5 /mnt/new
-sudo mkdir -p /mnt/new/{home,var/log,var/cache,var/lib/libvirt,swap,.snapshots}
+sudo mkdir -p /mnt/new/{home,var/log,var/cache,var/lib/libvirt/images,swap,.snapshots}
 sudo mount -t btrfs -o subvol=@home /dev/nvme0n1p5 /mnt/new/home
 sudo mount -t btrfs -o subvol=@var_log /dev/nvme0n1p5 /mnt/new/var/log
 sudo mount -t btrfs -o subvol=@var_cache /dev/nvme0n1p5 /mnt/new/var/cache
-sudo mount -t btrfs -o subvol=@libvirt /dev/nvme0n1p5 /mnt/new/var/lib/libvirt
+sudo mount -t btrfs -o subvol=@libvirt_images /dev/nvme0n1p5 /mnt/new/var/lib/libvirt/images
 sudo mount -t btrfs -o subvol=@swap /dev/nvme0n1p5 /mnt/new/swap
 sudo mount -t btrfs -o subvol=@snapshots /dev/nvme0n1p5 /mnt/new/.snapshots
 
@@ -275,13 +275,13 @@ sudo rsync -aAXHv --info=progress2 /mnt/btrfs/ /mnt/new/ \
   --exclude='/@-old-unused' \
   --exclude='/@var_log' \
   --exclude='/@var_cache' \
-  --exclude='/@libvirt' \
+  --exclude='/@libvirt_images' \
   --exclude='/@swap' \
   --exclude='/@snapshots' \
   --exclude='/home/*' \
   --exclude='/var/log/*' \
   --exclude='/var/cache/*' \
-  --exclude='/var/lib/libvirt/*' \
+  --exclude='/var/lib/libvirt/images/*' \
   --exclude='/swap/*' \
   --exclude='/.snapshots/*' \
   --exclude='/dev/*' \
@@ -295,7 +295,7 @@ sudo rsync -aAXHv --info=progress2 /mnt/btrfs/ /mnt/new/ \
   --exclude='/swap.img'
 
 # Create necessary directories that were excluded
-sudo mkdir -p /mnt/new/{home,var/log,var/cache,var/lib/libvirt,swap,.snapshots,dev,proc,sys,run,tmp,mnt,media}
+sudo mkdir -p /mnt/new/{home,var/log,var/cache,var/lib/libvirt/images,swap,.snapshots,dev,proc,sys,run,tmp,mnt,media}
 ```
 
 **Note:** This will take 10-30 minutes depending on disk speed. Progress is shown with rsync output.
@@ -319,15 +319,15 @@ sudo rsync -aAXHv --info=progress2 /mnt/btrfs/var/log/ /mnt/new/var/log/
 sudo rsync -aAXHv --info=progress2 /mnt/btrfs/var/cache/ /mnt/new/var/cache/
 ```
 
-### 4.6 Copy /var/lib/libvirt (if exists)
+### 4.6 Copy /var/lib/libvirt/images (if exists)
 
 ```bash
-# Check if libvirt directory exists
-# NOCOW is automatically inherited from @libvirt subvolume property
-if [ -d /mnt/btrfs/var/lib/libvirt ]; then
-  sudo rsync -aAXHv --info=progress2 /mnt/btrfs/var/lib/libvirt/ /mnt/new/var/lib/libvirt/
+# Copy VM disk images to @libvirt_images subvolume
+# NOCOW is automatically inherited from @libvirt_images subvolume property
+if [ -d /mnt/btrfs/var/lib/libvirt/images ]; then
+  sudo rsync -aAXHv --info=progress2 /mnt/btrfs/var/lib/libvirt/images/ /mnt/new/var/lib/libvirt/images/
 else
-  echo "No libvirt directory found - skipping"
+  echo "No VM images found - skipping"
 fi
 ```
 
@@ -377,13 +377,13 @@ Replace ALL btrfs entries with the following (keep any non-btrfs mounts like EFI
 
 ```fstab
 # Btrfs subvolumes - flat layout
-UUID=bae81b8a-6999-4457-827b-e30341b338ff /                btrfs subvol=@,ssd,discard=async,space_cache=v2 0 0
-UUID=bae81b8a-6999-4457-827b-e30341b338ff /home            btrfs subvol=@home,ssd,discard=async,space_cache=v2 0 0
-UUID=bae81b8a-6999-4457-827b-e30341b338ff /var/log         btrfs subvol=@var_log,ssd,discard=async,space_cache=v2,nodatacow 0 0
-UUID=bae81b8a-6999-4457-827b-e30341b338ff /var/cache       btrfs subvol=@var_cache,ssd,discard=async,space_cache=v2 0 0
-UUID=bae81b8a-6999-4457-827b-e30341b338ff /var/lib/libvirt btrfs subvol=@libvirt,ssd,discard=async,space_cache=v2,nodatacow 0 0
-UUID=bae81b8a-6999-4457-827b-e30341b338ff /swap            btrfs subvol=@swap,ssd,discard=async,space_cache=v2,nodatacow 0 0
-UUID=bae81b8a-6999-4457-827b-e30341b338ff /.snapshots      btrfs subvol=@snapshots,ssd,discard=async,space_cache=v2 0 0
+UUID=bae81b8a-6999-4457-827b-e30341b338ff /                    btrfs subvol=@,ssd,discard=async,space_cache=v2 0 0
+UUID=bae81b8a-6999-4457-827b-e30341b338ff /home                btrfs subvol=@home,ssd,discard=async,space_cache=v2 0 0
+UUID=bae81b8a-6999-4457-827b-e30341b338ff /var/log             btrfs subvol=@var_log,ssd,discard=async,space_cache=v2,nodatacow 0 0
+UUID=bae81b8a-6999-4457-827b-e30341b338ff /var/cache           btrfs subvol=@var_cache,ssd,discard=async,space_cache=v2 0 0
+UUID=bae81b8a-6999-4457-827b-e30341b338ff /var/lib/libvirt/images btrfs subvol=@libvirt_images,ssd,discard=async,space_cache=v2,nodatacow 0 0
+UUID=bae81b8a-6999-4457-827b-e30341b338ff /swap                btrfs subvol=@swap,ssd,discard=async,space_cache=v2,nodatacow 0 0
+UUID=bae81b8a-6999-4457-827b-e30341b338ff /.snapshots          btrfs subvol=@snapshots,ssd,discard=async,space_cache=v2 0 0
 
 # EFI System Partition
 UUID=72B8-FEBD /boot/efi vfat umask=0077 0 1
@@ -393,9 +393,10 @@ UUID=72B8-FEBD /boot/efi vfat umask=0077 0 1
 ```
 
 **Key points:**
-- NOCOW is set as a property on `@var_log`, `@libvirt`, and `@swap` subvolumes (done in Phase 3)
+- NOCOW is set as a property on `@var_log`, `@libvirt_images`, and `@swap` subvolumes (done in Phase 3)
 - All files in those subvolumes automatically inherit NOCOW, regardless of mount options
 - Each subvolume specified with `subvol=@name` format
+- Only VM disk images are in the @libvirt_images subvolume (mounted at /var/lib/libvirt/images)
 - Swapfile path changed from `/swap.img` to `/swap/swap.img` (now in separate subvolume)
 - Verify UUIDs match your system (they should)
 
@@ -511,7 +512,7 @@ You're now back in the live USB environment.
 ```bash
 # Check all subvolumes were created
 sudo btrfs subvolume list /mnt/btrfs
-# Should show: @, @home, @var_log, @var_cache, @libvirt, @swap, @snapshots
+# Should show: @, @home, @var_log, @var_cache, @libvirt_images, @swap, @snapshots
 
 # Verify new @ subvolume has content
 ls -la /mnt/new/etc/ | head -20
@@ -522,11 +523,11 @@ ls -la /mnt/new/usr/bin/ | head -10
 ls -la /mnt/new/home/  # Should show your user directories
 ls -la /mnt/new/var/log/  # Should show log files
 ls -la /mnt/new/var/cache/apt/  # Should show apt cache
-ls -la /mnt/new/var/lib/libvirt/ 2>/dev/null  # Should show VM data if you have VMs
+ls -la /mnt/new/var/lib/libvirt/images/ 2>/dev/null  # Should show VM disk images if you have VMs
 ls -lh /mnt/new/swap/swap.img  # Should show swapfile with correct size (e.g., 8.0G)
 
 # Verify NOCOW properties are set correctly
-lsattr -d /mnt/btrfs/@var_log /mnt/btrfs/@libvirt /mnt/btrfs/@swap
+lsattr -d /mnt/btrfs/@var_log /mnt/btrfs/@libvirt_images /mnt/btrfs/@swap
 # Should show: ---------------C--- for each subvolume
 lsattr /mnt/new/swap/swap.img
 # Should show: ---------------C--- (inherited from parent)
@@ -572,7 +573,7 @@ test -f /mnt/new/etc/default/grub && echo "grub default: OK" || echo "grub defau
 sudo umount /mnt/new/boot/efi
 sudo umount /mnt/new/.snapshots
 sudo umount /mnt/new/swap
-sudo umount /mnt/new/var/lib/libvirt
+sudo umount /mnt/new/var/lib/libvirt/images
 sudo umount /mnt/new/var/cache
 sudo umount /mnt/new/var/log
 sudo umount /mnt/new/home
@@ -615,7 +616,7 @@ After rebooting, the system should boot normally from the @ subvolume.
    # /dev/nvme0n1p5 on /home type btrfs (subvol=@home,...)
    # /dev/nvme0n1p5 on /var/log type btrfs (subvol=@var_log,...)
    # /dev/nvme0n1p5 on /var/cache type btrfs (subvol=@var_cache,...)
-   # /dev/nvme0n1p5 on /var/lib/libvirt type btrfs (subvol=@libvirt,...)
+   # /dev/nvme0n1p5 on /var/lib/libvirt/images type btrfs (subvol=@libvirt_images,...)
    # /dev/nvme0n1p5 on /swap type btrfs (subvol=@swap,...)
    # /dev/nvme0n1p5 on /.snapshots type btrfs (subvol=@snapshots,...)
    ```
@@ -665,7 +666,7 @@ systemctl status libvirtd
 # List VMs
 virsh list --all
 
-# Check VM images are accessible
+# Check VM disk images are accessible (in @libvirt_images subvolume)
 ls -la /var/lib/libvirt/images/
 ```
 
@@ -718,7 +719,7 @@ ls -la /mnt/btrfs/
 
 # Remove any stray directories/files at top-level that were part of old layout
 # BE VERY CAREFUL - only remove files/dirs that are NOT subvolumes
-# Do NOT remove: @, @home, @var_log, @var_cache, @libvirt, @snapshots
+# Do NOT remove: @, @home, @var_log, @var_cache, @libvirt_images, @swap, @snapshots
 
 # Check what's left at top-level
 ls -la /mnt/btrfs/
@@ -726,7 +727,7 @@ ls -la /mnt/btrfs/
 
 # Verify final subvolume list
 sudo btrfs subvolume list /mnt/btrfs
-# Should show only: @, @home, @var_log, @var_cache, @libvirt, @swap, @snapshots (and any snapshots)
+# Should show only: @, @home, @var_log, @var_cache, @libvirt_images, @swap, @snapshots (and any snapshots)
 
 # Unmount
 sudo umount /mnt/btrfs
@@ -745,7 +746,7 @@ ls -la /mnt/btrfs/ | grep -v "^d.*@"
 # If you see old directories like 'bin', 'etc', 'usr' at top-level (not in @),
 # you can remove them, but ONLY after 2+ weeks of stable operation:
 # sudo rm -rf /mnt/btrfs/bin /mnt/btrfs/etc /mnt/btrfs/lib ...
-# DO NOT remove any @ directories!
+# DO NOT remove any @ directories! (@, @home, @var_log, @var_cache, @libvirt_images, @swap, @snapshots)
 ```
 
 ---
@@ -818,13 +819,13 @@ sudo mount -a
 
 ### VM Disks Not Accessible
 
-If libvirt can't find VM disks:
+If libvirt can't find VM disk images:
 
 ```bash
-# Check if /var/lib/libvirt is mounted
-mount | grep libvirt
+# Check if @libvirt_images is mounted at /var/lib/libvirt/images
+mount | grep libvirt/images
 
-# Check permissions
+# Check permissions on the images directory
 ls -la /var/lib/libvirt/images/
 
 # If mounted but empty, you may need to restart libvirtd
@@ -951,7 +952,7 @@ sudo timeshift --list
 sudo timeshift --create --comments "Initial snapshot"
 ```
 
-**Note:** Timeshift works best with @ and @home. For @var_log, @var_cache, and @libvirt snapshots, use snapper or manual btrfs commands.
+**Note:** Timeshift works best with @ and @home. For snapshots of other subvolumes, use snapper or manual btrfs commands.
 
 ### Automatic Snapshots with Cron
 
@@ -991,12 +992,12 @@ sudo crontab -e
 - [ ] Booted into live environment
 - [ ] Mounted filesystem and verified structure
 - [ ] Renamed or deleted old unused @ and @home subvolumes
-- [ ] Created new subvolumes (@, @home, @var_log, @var_cache, @libvirt, @swap, @snapshots)
+- [ ] Created new subvolumes (@, @home, @var_log, @var_cache, @libvirt_images, @swap, @snapshots)
 - [ ] Copied root data to @ subvolume
 - [ ] Copied home data to @home subvolume
 - [ ] Copied logs to @var_log subvolume
 - [ ] Copied cache to @var_cache subvolume
-- [ ] Copied libvirt data to @libvirt subvolume (if applicable)
+- [ ] Copied VM images to @libvirt_images subvolume (if applicable)
 - [ ] Created swapfile in @swap subvolume
 - [ ] Updated /etc/fstab with all subvolume mounts (including @swap)
 - [ ] Updated /etc/default/grub with rootflags=subvol=@
@@ -1006,9 +1007,9 @@ sudo crontab -e
 - [ ] Updated initramfs
 - [ ] Verified all changes before reboot
 - [ ] Successfully booted into new @ layout
-- [ ] Verified all 7 subvolumes mounted correctly (including @swap)
+- [ ] Verified all 7 subvolumes mounted correctly (including @libvirt_images and @swap)
 - [ ] Tested all services and applications
-- [ ] Tested VM functionality (if applicable)
+- [ ] Tested VM functionality with images in @libvirt_images (if applicable)
 - [ ] Created initial snapshots
 - [ ] Monitored system for 1-2 weeks
 - [ ] Cleaned up old subvolumes and data
