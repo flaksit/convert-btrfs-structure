@@ -135,15 +135,29 @@ du -sh /var/lib/libvirt/images 2>/dev/null > ~/libvirt-images-size.backup || ech
 cp ~/*.backup /mnt/backup/system-backup-$(date +%Y%m%d)/
 ```
 
-### 1.3 Check Current Swapfile
+### 1.3 Verify EFI Mount Point
+
+```bash
+# Verify EFI partition is mounted at /boot/efi (standard for Ubuntu)
+findmnt /boot/efi
+# Should show: /boot/efi mounted from /dev/nvme0n1p1 (vfat)
+
+# If not mounted at /boot/efi, note the actual mount point
+mount | grep -i efi
+```
+
+**Note:** This guide assumes the standard Ubuntu EFI mount point `/boot/efi`, mounted from `/dev/nvme0n1p1`. If yours differs, you'll need to adjust the commands in Phase 4.8 and Phase 6.4 accordingly.
+
+### 1.4 Check Current Swapfile
 
 ```bash
 # Check if swapfile exists and note its size
 ls -lh /swap.img
-# Note the size - you'll recreate it later (e.g., 8G, 16G, etc.)
 ```
 
-### 1.4 Prepare Live USB
+**Note:** Note the size. You'll need it when recreating the swapfile in Phase 4.7.
+
+### 1.5 Prepare Live USB
 
 Download Ubuntu live USB matching your system version:
 
@@ -356,10 +370,8 @@ fi
 
 ### 4.7 Handle Swapfile
 
-```bash
-# Check what size swapfile you had (from Phase 1.3 notes)
-# Typical sizes: 8G, 16G, or equal to RAM size
-```
+Check what size swapfile you had (from Phase 1.4 notes).  
+Typical sizes: 8G, 16G, or equal to RAM size
 
 **Option 1: Modern btrfs-native method (recommended):**
 
@@ -391,6 +403,8 @@ lsattr /mnt/new/swap/swap.img
 **Note:** Both methods produce the same result. The btrfs-native method is simpler and ensures proper attributes, while the traditional method works on older systems.
 
 ### 4.8 Mount and Copy EFI Partition
+
+Check you EFI partition and mount point (from Phase 1.3 notes). This guide assumes `/dev/nvme0n1p1` is mounted as `/boot/efi`.
 
 ```bash
 # Mount EFI partition into new @ subvolume
@@ -537,6 +551,8 @@ grep "rootflags=subvol=@" /boot/grub/grub.cfg
 ```
 
 ### 6.4 Reinstall GRUB to EFI
+
+Check you EFI mount point (from Phase 1.3 notes). This guide assumes `/boot/efi`.
 
 Still inside chroot:
 
@@ -1137,5 +1153,6 @@ sudo crontab -e
 4. **Verify everything before rebooting** - Use the verification checklist
 5. **Monitor the system** for at least 1-2 weeks before cleanup
 6. **Set up regular snapshots** to benefit from the new layout
-7. **Document your swapfile size** before starting (from Phase 1.3)
-8. **Test snapshot restoration** after migration to ensure it works
+7. **Document your EFI partition and mount point** before starting (from Phase 1.3)
+8. **Document your swapfile size** before starting (from Phase 1.4)
+9. **Test snapshot restoration** after migration to ensure it works
