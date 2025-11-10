@@ -780,14 +780,6 @@ sudo mount -t btrfs -o subvolid=5 /dev/nvme0n1p5 /mnt/btrfs
 sudo btrfs subvolume list /mnt/btrfs
 ls -la /mnt/btrfs/
 
-# Remove any stray directories/files at top-level that were part of old layout
-# BE VERY CAREFUL - only remove files/dirs that are NOT subvolumes
-# Do NOT remove: @, @home, @var_log, @var_cache, @libvirt_images, @swap, @snapshots
-
-# Check what's left at top-level
-ls -la /mnt/btrfs/
-# Should only show subvolume directories now
-
 # Verify final subvolume list
 sudo btrfs subvolume list /mnt/btrfs
 # Should show only: @, @home, @var_log, @var_cache, @libvirt_images, @swap, @snapshots (and any snapshots)
@@ -796,21 +788,60 @@ sudo btrfs subvolume list /mnt/btrfs
 sudo umount /mnt/btrfs
 ```
 
-**Optional:** Remove old data files from top-level if any remain:
+**If old data directories remain at top-level** (like bin, etc, usr, var, home), you can safely remove them after 2+ weeks of stable operation:
 
 ```bash
-# DANGEROUS - Only if you're absolutely sure old files remain at top-level
 # Mount top-level
 sudo mount -t btrfs -o subvolid=5 /dev/nvme0n1p5 /mnt/btrfs
 
-# Check what directories exist that are NOT subvolumes
+# List non-subvolume directories at top-level
 ls -la /mnt/btrfs/ | grep -v "^d.*@"
 
-# If you see old directories like 'bin', 'etc', 'usr' at top-level (not in @),
-# you can remove them, but ONLY after 2+ weeks of stable operation:
-# sudo rm -rf /mnt/btrfs/bin /mnt/btrfs/etc /mnt/btrfs/lib ...
-# DO NOT remove any @ directories! (@, @home, @var_log, @var_cache, @libvirt_images, @swap, @snapshots)
+# SAFETY CHECK: Verify directories are NOT subvolumes before deletion
+# This helper function checks if a path is a regular directory (safe to rm -rf)
+check_safe_to_delete() {
+    local path="$1"
+    local name=$(basename "$path")
+
+    # Never delete @ subvolumes
+    if [[ "$name" =~ ^@ ]]; then
+        echo "DANGER: $name looks like a subvolume name, SKIPPING"
+        return 1
+    fi
+
+    # Check if it's actually a subvolume
+    if sudo btrfs subvolume show "$path" &>/dev/null; then
+        echo "DANGER: $path is a subvolume, SKIPPING"
+        return 1
+    fi
+
+    echo "SAFE: $path is a regular directory"
+    return 0
+}
+
+# Example: Remove old directories safely (adjust list as needed)
+for dir in bin boot etc home lib lib64 opt root sbin srv usr var; do
+    if [ -d "/mnt/btrfs/$dir" ]; then
+        if check_safe_to_delete "/mnt/btrfs/$dir"; then
+            echo "Removing /mnt/btrfs/$dir"
+            sudo rm -rf "/mnt/btrfs/$dir"
+        fi
+    fi
+done
+
+# Verify only subvolumes remain
+ls -la /mnt/btrfs/
+# Should only show @ directories and maybe lost+found
+
+# Unmount
+sudo umount /mnt/btrfs
 ```
+
+**CRITICAL SAFETY RULES:**
+- NEVER use `rm -rf` without the safety check function
+- NEVER delete directories starting with `@`
+- NEVER delete directories that `btrfs subvolume show` identifies as subvolumes
+- Always verify with `btrfs subvolume list` after cleanup
 
 ---
 
