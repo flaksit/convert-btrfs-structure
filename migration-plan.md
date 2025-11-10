@@ -202,6 +202,28 @@ ls -la /mnt/btrfs/@/etc/fstab  # Should NOT exist (@ is empty)
 
 ---
 
+## Phase 2.4: Create Safety Net Snapshot
+
+Before making any destructive changes, create a snapshot of the current top-level state for fast rollback:
+
+```bash
+# Create read-only snapshot of entire top-level as safety net
+sudo btrfs subvolume snapshot -r /mnt/btrfs /mnt/btrfs/backup-pre-migration
+
+# Verify snapshot was created
+sudo btrfs subvolume list /mnt/btrfs
+# Should show: backup-pre-migration
+
+# Check snapshot size (should be near-instant, metadata only)
+sudo btrfs subvolume show /mnt/btrfs/backup-pre-migration
+```
+
+**Purpose:** This snapshot provides a fast rollback option on the disk itself. While you have an external NAS backup, restoring 150GB+ over network is slow. This snapshot allows near-instant recovery if migration commands fail.
+
+**To rollback using this snapshot:** If something goes wrong during migration, you can delete failed subvolumes and the snapshot remains intact as a reference of your original state.
+
+---
+
 ## Phase 3: Create New Subvolume Structure
 
 No existing @ or @home subvolumes exist on your system, so you can proceed directly to creating the new subvolume layout:
@@ -702,6 +724,22 @@ ls -la /.snapshots/
 **Wait at least 1-2 weeks** and verify everything is stable before cleanup.
 
 After confirming stable operation:
+
+### 9.1 Remove Safety Net Snapshot
+
+```bash
+# Mount top-level
+sudo mkdir -p /mnt/btrfs
+sudo mount -t btrfs -o subvolid=5 /dev/nvme0n1p5 /mnt/btrfs
+
+# Remove the pre-migration safety snapshot
+sudo btrfs subvolume delete /mnt/btrfs/backup-pre-migration
+
+# Unmount
+sudo umount /mnt/btrfs
+```
+
+### 9.2 Clean Up Old Top-Level Data
 
 ```bash
 # Mount top-level to access old subvolumes
