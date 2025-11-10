@@ -252,11 +252,11 @@ sudo btrfs subvolume create /mnt/btrfs/@libvirt_images
 sudo btrfs subvolume create /mnt/btrfs/@swap
 sudo btrfs subvolume create /mnt/btrfs/@snapshots
 
-# Set NOCOW on subvolumes that benefit from it
+# Set NOCOW attribute on subvolumes that benefit from it
 # Files created in these subvolumes will automatically inherit NOCOW
-sudo btrfs property set /mnt/btrfs/@var_log nodatacow true
-sudo btrfs property set /mnt/btrfs/@libvirt_images nodatacow true
-sudo btrfs property set /mnt/btrfs/@swap nodatacow true
+sudo chattr +C /mnt/btrfs/@var_log
+sudo chattr +C /mnt/btrfs/@libvirt_images
+sudo chattr +C /mnt/btrfs/@swap
 
 # Verify creation
 sudo btrfs subvolume list /mnt/btrfs
