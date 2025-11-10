@@ -359,7 +359,23 @@ fi
 ```bash
 # Check what size swapfile you had (from Phase 1.3 notes)
 # Typical sizes: 8G, 16G, or equal to RAM size
+```
 
+**Option 1: Modern btrfs-native method (recommended):**
+
+```bash
+# Use btrfs filesystem mkswapfile (requires btrfs-progs 5.17+)
+# This automatically sets NOCOW and creates the swapfile correctly
+sudo btrfs filesystem mkswapfile --size 8G /mnt/new/swap/swap.img
+
+# Verify NOCOW attribute was set
+lsattr /mnt/new/swap/swap.img
+# Should show: ---------------C---
+```
+
+**Option 2: Traditional method (works on all systems):**
+
+```bash
 # Create swapfile in @swap subvolume (separate from @ to exclude from snapshots)
 # NOCOW is automatically inherited from the @swap subvolume property
 sudo touch /mnt/new/swap/swap.img
@@ -371,6 +387,8 @@ sudo mkswap /mnt/new/swap/swap.img
 lsattr /mnt/new/swap/swap.img
 # Should show: ---------------C---
 ```
+
+**Note:** Both methods produce the same result. The btrfs-native method is simpler and ensures proper attributes, while the traditional method works on older systems.
 
 ### 4.8 Mount and Copy EFI Partition
 
