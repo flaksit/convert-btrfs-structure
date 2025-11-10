@@ -271,7 +271,7 @@ Copy root filesystem from top-level to @ subvolume, excluding directories that g
 # Source: /mnt/btrfs (top-level where current data lives)
 # Destination: /mnt/new (the new @ subvolume)
 
-sudo cp -a /mnt/btrfs/. /mnt/new/
+sudo cp -ax --reflink=always /mnt/btrfs/. /mnt/new/
 
 # Remove old/unused subvolume directories and system directories
 # These should not be in the @ subvolume
@@ -290,7 +290,7 @@ sudo mkdir -p /mnt/new/{dev,proc,sys,run,tmp,mnt,media}
 ### 4.3 Copy /home
 
 ```bash
-sudo cp -a /mnt/btrfs/home/. /mnt/new/home/
+sudo cp -ax --reflink=always /mnt/btrfs/home/. /mnt/new/home/
 ```
 
 **Note:** This completes in seconds due to CoW reflinks.
@@ -299,7 +299,7 @@ sudo cp -a /mnt/btrfs/home/. /mnt/new/home/
 
 ```bash
 # NOCOW is automatically inherited from @var_log subvolume property
-sudo cp -a /mnt/btrfs/var/log/. /mnt/new/var/log/
+sudo cp -ax --reflink=always /mnt/btrfs/var/log/. /mnt/new/var/log/
 ```
 
 **Note:** This completes in seconds due to CoW reflinks.
@@ -307,7 +307,7 @@ sudo cp -a /mnt/btrfs/var/log/. /mnt/new/var/log/
 ### 4.5 Copy /var/cache
 
 ```bash
-sudo cp -a /mnt/btrfs/var/cache/. /mnt/new/var/cache/
+sudo cp -ax --reflink=always /mnt/btrfs/var/cache/. /mnt/new/var/cache/
 ```
 
 **Note:** This completes in seconds due to CoW reflinks.
@@ -318,7 +318,7 @@ sudo cp -a /mnt/btrfs/var/cache/. /mnt/new/var/cache/
 # Copy VM disk images to @libvirt_images subvolume
 # NOCOW is automatically inherited from @libvirt_images subvolume property
 if [ -d /mnt/btrfs/var/lib/libvirt/images ] && [ -n "$(ls -A /mnt/btrfs/var/lib/libvirt/images)" ]; then
-  sudo cp -a /mnt/btrfs/var/lib/libvirt/images/. /mnt/new/var/lib/libvirt/images/
+  sudo cp -ax --reflink=always /mnt/btrfs/var/lib/libvirt/images/. /mnt/new/var/lib/libvirt/images/
 else
   echo "No VM images found - skipping"
 fi
