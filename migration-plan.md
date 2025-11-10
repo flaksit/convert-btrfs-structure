@@ -384,6 +384,20 @@ ls -la /mnt/new/boot/efi/EFI
 
 ### 5.1 Update /etc/fstab
 
+First, verify your actual filesystem UUIDs:
+
+```bash
+# Get your btrfs filesystem UUID
+sudo blkid /dev/nvme0n1p5
+# Note the UUID value (should be bae81b8a-6999-4457-827b-e30341b338ff for this system)
+
+# Get your EFI partition UUID
+sudo blkid /dev/nvme0n1p1
+# Note the UUID value (should be 72B8-FEBD for this system)
+```
+
+**IMPORTANT:** The UUIDs in the example below are specific to this system. Verify your actual UUIDs match before proceeding!
+
 Edit `/mnt/new/etc/fstab` to mount from subvolumes:
 
 ```bash
@@ -409,13 +423,23 @@ UUID=72B8-FEBD /boot/efi vfat umask=0077 0 1
 /swap/swap.img none swap sw 0 0
 ```
 
+**Verify your fstab after editing:**
+
+```bash
+# Double-check UUIDs match your system
+sudo blkid | grep -E "(nvme0n1p5|nvme0n1p1)"
+cat /mnt/new/etc/fstab | grep UUID
+
+# The UUIDs in fstab should match the blkid output!
+```
+
 **Key points:**
 - NOCOW is set as a property on `@var_log`, `@libvirt_images`, and `@swap` subvolumes (done in Phase 3)
 - All files in those subvolumes automatically inherit NOCOW, regardless of mount options
 - Each subvolume specified with `subvol=@name` format
 - Only VM disk images are in the @libvirt_images subvolume (mounted at /var/lib/libvirt/images)
 - Swapfile path changed from `/swap.img` to `/swap/swap.img` (now in separate subvolume)
-- Verify UUIDs match your system (they should)
+- **CRITICAL:** UUIDs in fstab must match your actual system UUIDs from `blkid`
 
 ### 5.2 Update GRUB Configuration
 
