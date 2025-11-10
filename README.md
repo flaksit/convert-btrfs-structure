@@ -79,7 +79,6 @@ This migration is ideal if you:
 
 This guide was created to address a specific migration scenario where:
 - System boots from btrfs top-level (subvolid=5)
-- Subvolumes @ and @home exist but are **unused**
 - All data currently lives at the filesystem top level
 - Goal is to reorganize into modern flat subvolume layout
 
