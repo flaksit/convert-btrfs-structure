@@ -235,6 +235,9 @@ lsattr -d /mnt/btrfs/@var_log /mnt/btrfs/@libvirt_images /mnt/btrfs/@swap
 
 ## Phase 4: Migrate Data
 
+This phase uses `cp -a` for all file copies instead of `rsync`. See [why-cp-instead-of-rsync.md](why-cp-instead-of-rsync.md) for detailed reasoning.
+
+
 ### 4.1 Prepare Mount Points
 
 ```bash
@@ -264,72 +267,64 @@ mount | grep nvme0n1p5
 Copy root filesystem from top-level to @ subvolume, excluding directories that go to separate subvolumes:
 
 ```bash
-# This copies everything except what goes to other subvolumes
+# Copy all files from top-level to @ subvolume using reflinks (instant)
 # Source: /mnt/btrfs (top-level where current data lives)
 # Destination: /mnt/new (the new @ subvolume)
 
-sudo rsync -aAXHv --info=progress2 /mnt/btrfs/ /mnt/new/ \
-  --exclude='/@' \
-  --exclude='/@home' \
-  --exclude='/@home-old-unused' \
-  --exclude='/@-old-unused' \
-  --exclude='/@var_log' \
-  --exclude='/@var_cache' \
-  --exclude='/@libvirt_images' \
-  --exclude='/@swap' \
-  --exclude='/@snapshots' \
-  --exclude='/home/*' \
-  --exclude='/var/log/*' \
-  --exclude='/var/cache/*' \
-  --exclude='/var/lib/libvirt/images/*' \
-  --exclude='/swap/*' \
-  --exclude='/.snapshots/*' \
-  --exclude='/dev/*' \
-  --exclude='/proc/*' \
-  --exclude='/sys/*' \
-  --exclude='/run/*' \
-  --exclude='/tmp/*' \
-  --exclude='/mnt/*' \
-  --exclude='/media/*' \
-  --exclude='/lost+found' \
-  --exclude='/swap.img'
+sudo cp -a /mnt/btrfs/. /mnt/new/
 
-# Create necessary directories that were excluded
-sudo mkdir -p /mnt/new/{home,var/log,var/cache,var/lib/libvirt/images,swap,.snapshots,dev,proc,sys,run,tmp,mnt,media}
+# Remove old/unused subvolume directories and system directories
+# These should not be in the @ subvolume
+sudo rm -rf /mnt/new/@*  # Remove old subvolume directories (@, @home, @home-old-unused, etc.)
+sudo rm -rf /mnt/new/{dev,proc,sys,run,tmp,mnt,media,lost+found,swap.img}
+
+# Recreate empty system directories that are needed
+sudo mkdir -p /mnt/new/{dev,proc,sys,run,tmp,mnt,media}
+
+# Note: /home, /var/log, /var/cache, /var/lib/libvirt/images, /swap, /.snapshots
+# were copied but will be unmounted and replaced by their subvolume mounts
 ```
 
-**Note:** This will take 10-30 minutes depending on disk speed. Progress is shown with rsync output.
+**Note:** This completes in seconds due to CoW reflinks. The cp creates metadata pointers to existing data blocks; actual deduplication happens when we unmount the old top-level data.
 
 ### 4.3 Copy /home
 
 ```bash
-sudo rsync -aAXHv --info=progress2 /mnt/btrfs/home/ /mnt/new/home/
+sudo cp -a /mnt/btrfs/home/. /mnt/new/home/
 ```
+
+**Note:** This completes in seconds due to CoW reflinks.
 
 ### 4.4 Copy /var/log
 
 ```bash
 # NOCOW is automatically inherited from @var_log subvolume property
-sudo rsync -aAXHv --info=progress2 /mnt/btrfs/var/log/ /mnt/new/var/log/
+sudo cp -a /mnt/btrfs/var/log/. /mnt/new/var/log/
 ```
+
+**Note:** This completes in seconds due to CoW reflinks.
 
 ### 4.5 Copy /var/cache
 
 ```bash
-sudo rsync -aAXHv --info=progress2 /mnt/btrfs/var/cache/ /mnt/new/var/cache/
+sudo cp -a /mnt/btrfs/var/cache/. /mnt/new/var/cache/
 ```
+
+**Note:** This completes in seconds due to CoW reflinks.
 
 ### 4.6 Copy /var/lib/libvirt/images (if exists)
 
 ```bash
 # Copy VM disk images to @libvirt_images subvolume
 # NOCOW is automatically inherited from @libvirt_images subvolume property
-if [ -d /mnt/btrfs/var/lib/libvirt/images ]; then
-  sudo rsync -aAXHv --info=progress2 /mnt/btrfs/var/lib/libvirt/images/ /mnt/new/var/lib/libvirt/images/
+if [ -d /mnt/btrfs/var/lib/libvirt/images ] && [ -n "$(ls -A /mnt/btrfs/var/lib/libvirt/images)" ]; then
+  sudo cp -a /mnt/btrfs/var/lib/libvirt/images/. /mnt/new/var/lib/libvirt/images/
 else
   echo "No VM images found - skipping"
 fi
 ```
+
+**Note:** This completes in seconds due to CoW reflinks.
 
 ### 4.7 Handle Swapfile
 
@@ -1021,7 +1016,7 @@ sudo crontab -e
 
 1. **DO NOT skip the backup step** - If something goes wrong, you'll need it
 2. **Keep the live USB handy** for at least 2 weeks after migration
-3. **Don't rush the copy operations** - Let rsync complete fully
+3. **The copy operations are fast** - CoW reflinks make cp -a essentially instant; entire Phase 4 should complete in seconds
 4. **Verify everything before rebooting** - Use the verification checklist
 5. **Monitor the system** for at least 1-2 weeks before cleanup
 6. **Set up regular snapshots** to benefit from the new layout

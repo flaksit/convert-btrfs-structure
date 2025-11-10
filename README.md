@@ -21,15 +21,16 @@ The flat subvolume layout provides:
 
 After migration, your filesystem will have:
 
-```
-Subvolume      Mount Point          Purpose
-----------     -----------          -------
-@              /                    Root filesystem
-@home          /home                User home directories
-@var_log       /var/log             System logs
-@var_cache     /var/cache           APT packages and caches
-@libvirt       /var/lib/libvirt     VM images and configurations
-@snapshots     /.snapshots          Snapshot storage directory
+```plain
+Subvolume         Mount Point              Purpose
+----------        -----------              -------
+@                 /                        Root filesystem
+@home             /home                    User home directories
+@var_log          /var/log                 System logs
+@var_cache        /var/cache               APT packages and caches
+@libvirt_images   /var/lib/libvirt/images  VM disk images
+@swap             /swap                    Swapfile storage (excluded from snapshots)
+@snapshots        /.snapshots              Snapshot storage directory
 ```
 
 All subvolumes exist as siblings at the top level (subvolid=5) in a flat structure, enabling snapshot-based system recovery.
