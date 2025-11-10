@@ -5,7 +5,7 @@
 - **UUID:** `bae81b8a-6999-4457-827b-e30341b338ff`
 - **Mount options:** `rw,relatime,ssd,discard=async,space_cache=v2`
 - **Current boot method:** Booting from top-level (subvolid=5), NOT from @ subvolume
-- **Existing subvolumes:** @ (ID 256), @home (ID 257) - **currently unused**
+- **Existing subvolumes:** None (@, @home, etc. do not exist yet)
 - **Distribution:** Ubuntu
 - **Bootloader:** GRUB
 - **Available space:** 671GB
@@ -185,7 +185,7 @@ ls -la /mnt/btrfs
 ```bash
 # List existing subvolumes
 sudo btrfs subvolume list /mnt/btrfs
-# Output should show: ID 256 @ and ID 257 @home
+# Output should show no subvolumes (just verifying top-level access)
 
 # Check disk space
 sudo btrfs filesystem usage /mnt/btrfs
@@ -198,27 +198,9 @@ ls -la /mnt/btrfs/@/etc/fstab  # Should NOT exist (@ is empty)
 
 ---
 
-## Phase 3: Handle Existing Subvolumes
+## Phase 3: Create New Subvolume Structure
 
-### 3.1 Rename Old Unused Subvolumes
-
-Since @ and @home already exist (but are empty/unused), rename them for safety:
-
-```bash
-# Check if old subvolumes are empty
-ls -la /mnt/btrfs/@/
-ls -la /mnt/btrfs/@home/
-
-# If they're empty (likely), rename them as backup
-sudo mv /mnt/btrfs/@ /mnt/btrfs/@-old-unused
-sudo mv /mnt/btrfs/@home /mnt/btrfs/@home-old-unused
-
-# Alternatively, if you're confident they're empty, delete them:
-# sudo btrfs subvolume delete /mnt/btrfs/@
-# sudo btrfs subvolume delete /mnt/btrfs/@home
-```
-
-### 3.2 Create New Subvolume Structure
+No existing @ or @home subvolumes exist on your system, so you can proceed directly to creating the new subvolume layout:
 
 ```bash
 # Create the new subvolumes
@@ -231,7 +213,7 @@ sudo btrfs subvolume create /mnt/btrfs/@snapshots
 
 # Verify creation
 sudo btrfs subvolume list /mnt/btrfs
-# Output should show 6 new subvolumes + the 2 renamed old ones
+# Output should show 6 new subvolumes
 ```
 
 ---
@@ -503,7 +485,6 @@ You're now back in the live USB environment.
 # Check all subvolumes were created
 sudo btrfs subvolume list /mnt/btrfs
 # Should show: @, @home, @var_log, @var_cache, @libvirt, @snapshots
-# Plus the old renamed ones: @-old-unused, @home-old-unused
 
 # Verify new @ subvolume has content
 ls -la /mnt/new/etc/ | head -20
@@ -698,10 +679,6 @@ sudo mount -t btrfs -o subvolid=5 /dev/nvme0n1p5 /mnt/btrfs
 # List what's at top-level
 sudo btrfs subvolume list /mnt/btrfs
 ls -la /mnt/btrfs/
-
-# Delete old renamed subvolumes (if they exist)
-sudo btrfs subvolume delete /mnt/btrfs/@-old-unused
-sudo btrfs subvolume delete /mnt/btrfs/@home-old-unused
 
 # Remove any stray directories/files at top-level that were part of old layout
 # BE VERY CAREFUL - only remove files/dirs that are NOT subvolumes
@@ -1013,21 +990,3 @@ sudo crontab -e
 6. **Set up regular snapshots** to benefit from the new layout
 7. **Document your swapfile size** before starting (from Phase 1.3)
 8. **Test snapshot restoration** after migration to ensure it works
-
----
-
-## Key Differences from Original Plan
-
-This corrected plan accounts for:
-- ✅ Your current @ and @home subvolumes exist but are **unused**
-- ✅ System currently boots from **top-level (subvolid=5)**, not from @
-- ✅ All current data lives at **top-level**, not in existing subvolumes
-- ✅ Correct backup commands that work from **running system** (Phase 1)
-- ✅ Proper handling of existing subvolumes (rename/delete before recreating)
-- ✅ Correct exclusion patterns to avoid copying old subvolumes
-- ✅ Proper swapfile creation sequence (create file, then set nodatacow)
-- ✅ Consistent naming (@var_log, @var_cache, @libvirt, @snapshots)
-- ✅ Added initramfs update step
-- ✅ Comprehensive troubleshooting for common boot issues
-
-Good luck with your migration!
