@@ -31,7 +31,7 @@ Your system currently boots from the btrfs top-level subvolume (subvolid=5). Alt
 
 After migration, your filesystem will have this layout:
 
-```
+```plain
 Subvolume      Mount Point          Purpose
 ----------     -----------          -------
 @              /                    Root filesystem
@@ -608,34 +608,34 @@ After rebooting, the system should boot normally from the @ subvolume.
 2. **Open terminal** (Ctrl+Alt+T)
 3. **Verify subvolume mounts:**
 
-```bash
-mount | grep btrfs
-# Expected output (7 lines):
-# /dev/nvme0n1p5 on / type btrfs (subvol=@,...)
-# /dev/nvme0n1p5 on /home type btrfs (subvol=@home,...)
-# /dev/nvme0n1p5 on /var/log type btrfs (subvol=@var_log,...)
-# /dev/nvme0n1p5 on /var/cache type btrfs (subvol=@var_cache,...)
-# /dev/nvme0n1p5 on /var/lib/libvirt type btrfs (subvol=@libvirt,...)
-# /dev/nvme0n1p5 on /swap type btrfs (subvol=@swap,...)
-# /dev/nvme0n1p5 on /.snapshots type btrfs (subvol=@snapshots,...)
-```
+   ```bash
+   mount | grep btrfs
+   # Expected output (7 lines):
+   # /dev/nvme0n1p5 on / type btrfs (subvol=@,...)
+   # /dev/nvme0n1p5 on /home type btrfs (subvol=@home,...)
+   # /dev/nvme0n1p5 on /var/log type btrfs (subvol=@var_log,...)
+   # /dev/nvme0n1p5 on /var/cache type btrfs (subvol=@var_cache,...)
+   # /dev/nvme0n1p5 on /var/lib/libvirt type btrfs (subvol=@libvirt,...)
+   # /dev/nvme0n1p5 on /swap type btrfs (subvol=@swap,...)
+   # /dev/nvme0n1p5 on /.snapshots type btrfs (subvol=@snapshots,...)
+   ```
 
 4. **Check disk usage:**
 
-```bash
-df -h
-# Verify all mount points show up with reasonable sizes
-```
+   ```bash
+   df -h
+   # Verify all mount points show up with reasonable sizes
+   ```
 
 5. **Verify you're booted from @ subvolume:**
 
-```bash
-cat /proc/cmdline | grep rootflags
-# Should show: ... rootflags=subvol=@ ...
+   ```bash
+   cat /proc/cmdline | grep rootflags
+   # Should show: ... rootflags=subvol=@ ...
 
-findmnt -n -o SOURCE /
-# Should show: /dev/nvme0n1p5[/@]
-```
+   findmnt -n -o SOURCE /
+   # Should show: /dev/nvme0n1p5[/@]
+   ```
 
 ### 8.3 Test Services and Applications
 
@@ -757,7 +757,7 @@ ls -la /mnt/btrfs/ | grep -v "^d.*@"
 If you see a GRUB prompt instead of boot menu:
 
 1. **Type these commands at grub> prompt:**
-   ```
+   ```bash
    ls
    # Note which partition shows (hd0,gpt5) or similar
 
