@@ -1009,12 +1009,20 @@ If system is completely broken:
 
 4. **Restore from backup:**
    ```bash
-   # Mount backup drive
-   sudo mount /dev/your-backup-drive /mnt/backup
+   # Mount Synology NAS via NFS (same as Phase 1.1)
+   sudo mkdir -p /mnt/backup
+   sudo mount -t nfs <nas-ip>:/volume1/your/backup/folder /mnt/backup
 
-   # Restore using rsync
-   sudo rsync -aAXHv /mnt/backup/system-backup-*/ /mnt/btrfs/ \
-     --exclude='/@*' --exclude='/dev/*' --exclude='/proc/*' --exclude='/sys/*'
+   # Verify NFS mount succeeded
+   mount | grep nfs
+
+   # Restore using rsync (reverse of Phase 1.1 backup)
+   # Source: /mnt/backup/system-backup-YYYYMMDD/ (the backup you created)
+   # Destination: /mnt/btrfs (the top-level filesystem)
+   sudo rsync -aAXHv /mnt/backup/system-backup-*/. /mnt/btrfs/ \
+     --exclude='/@*' --exclude='/dev/*' --exclude='/proc/*' --exclude='/sys/*' \
+     --exclude='/tmp/*' --exclude='/run/*' --exclude='/mnt/*' --exclude='/media/*' \
+     --exclude='/lost+found' --exclude='/swap.img'
    ```
 
 5. **Reboot** - system should boot from top-level as before migration
