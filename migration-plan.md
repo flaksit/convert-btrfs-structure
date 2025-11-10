@@ -257,8 +257,14 @@ lsattr -d /mnt/btrfs/@var_log /mnt/btrfs/@libvirt_images /mnt/btrfs/@swap
 
 ## Phase 4: Migrate Data
 
-This phase uses `cp -a` for all file copies instead of `rsync`. See [why-cp-instead-of-rsync.md](why-cp-instead-of-rsync.md) for detailed reasoning.
+This phase uses `cp -ax --reflink=always` for all file copies instead of `rsync`. See [why-cp-instead-of-rsync.md](why-cp-instead-of-rsync.md) for detailed reasoning.
 
+**Flags explained:**
+- `-a` (archive): Preserves permissions, ownership, timestamps, and attributes
+- `-x` (one-file-system): Prevents crossing filesystem boundaries, which stops cp from recursively copying subvolumes into themselves
+- `--reflink=always`: Forces copy-on-write (CoW) reflinks, making copies instant (metadata-only). If reflinks aren't possible, the command fails rather than silently doing a slow full copy.
+
+These flags ensure the migration is both safe (no infinite loops) and fast (instant CoW copies).
 
 ### 4.1 Prepare Mount Points
 
