@@ -323,7 +323,7 @@ mount | grep nvme0n1p5
 
 Copy root filesystem from top-level to @ and other subvolumes, using multiple `cp` commands to handle /var/log separately.
 
-**Step 4.2a: Copy everything except /var**
+#### Step 4.2a: Copy everything except /var
 
 ```bash
 # Copy all top-level items except /var using reflinks (instant)
@@ -335,7 +335,7 @@ find . -maxdepth 1 -mindepth 1 ! -name var -print0 | \
   sudo xargs -0 -I {} cp -ax --reflink=always {} /mnt/new/
 ```
 
-**Step 4.2b: Copy /var except /var/log**
+#### Step 4.2b: Copy /var except /var/log
 
 ```bash
 # Create /var in destination (if not already present)
@@ -347,7 +347,7 @@ find . -maxdepth 1 -mindepth 1 ! -name log -print0 | \
   sudo xargs -0 -I {} cp -ax --reflink=always {} /mnt/new/var/
 ```
 
-**Step 4.2c: Copy /var/log separately (with --reflink=auto)**
+#### Step 4.2c: Copy /var/log separately (with --reflink=auto)
 
 ```bash
 # Copy /var/log with --reflink=auto to handle mixed CoW/NOCOW source files
@@ -355,7 +355,7 @@ find . -maxdepth 1 -mindepth 1 ! -name log -print0 | \
 sudo cp -ax --reflink=auto /mnt/btrfs/var/log/. /mnt/new/var/log/
 ```
 
-**Step 4.2d: Cleanup**
+#### Step 4.2d: Cleanup
 
 ```bash
 # Remove old/unused subvolume directories created in the original top-level
@@ -369,7 +369,7 @@ sudo rm -f /mnt/new/swap.img
 # This preserves the exact filesystem structure for true migration
 ```
 
-**Explanation:**
+#### Explanation
 - Steps 4.2a and 4.2b copy with `--reflink=always` to guarantee reflinks (no silent full copies)
 - Step 4.2c copies /var/log with `--reflink=auto` because it may contain mixed CoW/NOCOW source files (see Phase 4 overview)
 - cp -ax crosses destination mount boundaries, so this operation populates @, @home, @var_cache, @libvirt_images, and @swap simultaneously
