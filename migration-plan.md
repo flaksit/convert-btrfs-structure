@@ -166,11 +166,21 @@ sudo du -sh /var/lib/libvirt/images 2>/dev/null > ~/libvirt-images-size.backup |
 {
     echo "=== EFI Mount Point Information ==="
     echo ""
-    echo "Standard EFI mount at /boot/efi:"
-    findmnt /boot/efi
-    echo ""
     echo "All EFI mounts:"
-    mount | grep -i efi
+    EFI_MOUNT=$(mount | grep -i efi)
+    echo "$EFI_MOUNT"
+    echo ""
+
+    # Extract the mount point from the grep output
+    EFI_MOUNTPOINT=$(echo "$EFI_MOUNT" | awk '{print $3}' | head -1)
+    if [ -n "$EFI_MOUNTPOINT" ]; then
+        echo "Detected EFI mount point: $EFI_MOUNTPOINT"
+        echo ""
+        echo "Details for $EFI_MOUNTPOINT:"
+        findmnt "$EFI_MOUNTPOINT"
+    else
+        echo "WARNING: No EFI partition mounted!"
+    fi
 } > ~/efi-config.backup
 
 # Display the configuration

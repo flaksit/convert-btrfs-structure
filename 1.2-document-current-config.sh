@@ -59,11 +59,23 @@ echo -e "${YELLOW}Step 4: Documenting EFI configuration...${NC}"
 {
     echo "=== EFI Mount Point Information ==="
     echo ""
-    echo "Standard EFI mount at /boot/efi:"
-    findmnt /boot/efi 2>/dev/null || echo "NOT MOUNTED at /boot/efi"
-    echo ""
     echo "All EFI mounts:"
-    mount | grep -i efi || echo "No EFI mounts found"
+    EFI_MOUNT=$(mount | grep -i efi)
+    if [ -n "$EFI_MOUNT" ]; then
+        echo "$EFI_MOUNT"
+        echo ""
+
+        # Extract the mount point from the grep output
+        EFI_MOUNTPOINT=$(echo "$EFI_MOUNT" | awk '{print $3}' | head -1)
+        echo "Detected EFI mount point: $EFI_MOUNTPOINT"
+        echo ""
+        echo "Details for $EFI_MOUNTPOINT:"
+        findmnt "$EFI_MOUNTPOINT" 2>/dev/null || echo "findmnt failed for $EFI_MOUNTPOINT"
+    else
+        echo "No EFI mounts found"
+        echo ""
+        echo "WARNING: No EFI partition mounted!"
+    fi
     echo ""
     echo "EFI partition device:"
     blkid | grep -i "TYPE=\"vfat\"" | grep -E "(nvme0n1p1|sda1)" || echo "EFI partition not identified"
