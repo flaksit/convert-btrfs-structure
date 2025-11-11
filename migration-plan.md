@@ -271,14 +271,29 @@ lsattr -d /mnt/btrfs/@var_log /mnt/btrfs/@libvirt_images /mnt/btrfs/@swap
 
 ## Phase 4: Migrate Data
 
-This phase uses `cp -ax --reflink=always` for all file copies instead of `rsync`. See [why-cp-instead-of-rsync.md](why-cp-instead-of-rsync.md) for detailed reasoning.
+This phase uses `cp -ax --reflink=always` for most file copies instead of `rsync`. See [why-cp-instead-of-rsync.md](why-cp-instead-of-rsync.md) for detailed reasoning.
 
 **Flags explained:**
 - `-a` (archive): Preserves permissions, ownership, timestamps, and attributes
-- `-x` (one-file-system): Prevents crossing filesystem boundaries, which stops cp from recursively copying subvolumes into themselves
+- `-x` (one-file-system): Prevents crossing filesystem boundaries at the SOURCE, which stops cp from recursively copying mounted source directories
 - `--reflink=always`: Forces copy-on-write (CoW) reflinks, making copies instant (metadata-only). If reflinks aren't possible, the command fails rather than silently doing a slow full copy.
 
-These flags ensure the migration is both safe (no infinite loops) and fast (instant CoW copies).
+**Important note on `cp -x` and destination mount points:**
+The `-x` flag prevents cp from crossing mount boundaries in the SOURCE filesystem only. It does NOT prevent cp from writing across mount point boundaries in the DESTINATION. This is intentional in our setup:
+- In step 4.1, we mount all subvolumes: @ at `/mnt/new`, @home at `/mnt/new/home`, @var/log at `/mnt/new/var/log`, etc.
+- In step 4.2, the single `cp -ax` command writes across these destination mount boundaries, populating all subvolumes in one operation
+- **Result:** A single copy operation efficiently populates @, @home, @var_cache, @libvirt_images, and @swap simultaneously
+
+**Special handling for /var/log:**
+The /var/log directory may contain a mix of files with different CoW attributes (most are CoW, some may be NOCOW from earlier configurations). When copying such mixed-attribute directories with `--reflink=always`, reflink attempts may fail on NOCOW source files. Therefore:
+- Steps 4.2a and 4.2b copy everything except /var/log with `--reflink=always` (guarantees reflinks or fails completely)
+- Step 4.2c copies /var/log separately with `--reflink=auto` (reflinks when possible, falls back to physical copy for problem files)
+- This prevents hundreds of error messages while maintaining reflink safety for the bulk of the data
+
+**Flags rationale:**
+- Use `--reflink=always` for most data to detect if reflinks aren't working (fails loudly rather than silently doing slow copies)
+- Use `--reflink=auto` only for /var/log to handle mixed CoW/NOCOW source files gracefully
+- Combined approach ensures both safety and clean execution
 
 ### 4.1 Prepare Mount Points
 
@@ -306,71 +321,65 @@ mount | grep nvme0n1p5
 
 ### 4.2 Copy Root Filesystem
 
-Copy root filesystem from top-level to @ subvolume, excluding directories that go to separate subvolumes:
+Copy root filesystem from top-level to @ and other subvolumes, using multiple `cp` commands to handle /var/log separately.
+
+**Step 4.2a: Copy everything except /var**
 
 ```bash
-# Copy all files from top-level to @ subvolume using reflinks (instant)
+# Copy all top-level items except /var using reflinks (instant)
 # Source: /mnt/btrfs (top-level where current data lives)
-# Destination: /mnt/new (the new @ subvolume)
+# Destination: /mnt/new (mounted as @, with subvolumes mounted as subdirectories)
 
-sudo cp -ax --reflink=always /mnt/btrfs/. /mnt/new/
+cd /mnt/btrfs
+find . -maxdepth 1 -mindepth 1 ! -name var -print0 | \
+  sudo xargs -0 -I {} cp -ax --reflink=always {} /mnt/new/
+```
 
-# Remove old/unused subvolume directories and system directories
-# These should not be in the @ subvolume
+**Step 4.2b: Copy /var except /var/log**
+
+```bash
+# Create /var in destination (if not already present)
+sudo mkdir -p /mnt/new/var
+
+# Copy all subdirectories of /var except /var/log
+cd /mnt/btrfs/var
+find . -maxdepth 1 -mindepth 1 ! -name log -print0 | \
+  sudo xargs -0 -I {} cp -ax --reflink=always {} /mnt/new/var/
+```
+
+**Step 4.2c: Copy /var/log separately (with --reflink=auto)**
+
+```bash
+# Copy /var/log with --reflink=auto to handle mixed CoW/NOCOW source files
+# (most files are CoW, but some may be NOCOW from earlier configurations)
+sudo cp -ax --reflink=auto /mnt/btrfs/var/log/. /mnt/new/var/log/
+```
+
+**Step 4.2d: Cleanup**
+
+```bash
+# Remove old/unused subvolume directories created in the original top-level
 sudo rm -rf /mnt/new/@*  # Remove old subvolume directories (@, @home, @home-old-unused, etc.)
-sudo rm -rf /mnt/new/{dev,proc,sys,run,tmp,mnt,media,lost+found,swap.img}
 
-# Recreate empty system directories that are needed
-sudo mkdir -p /mnt/new/{dev,proc,sys,run,tmp,mnt,media}
+# Remove old swapfile (new one will be created in @swap subvolume in step 4.3)
+sudo rm -f /mnt/new/swap.img
 
-# Note: /home, /var/log, /var/cache, /var/lib/libvirt/images, /swap, /.snapshots
-# were copied but will be unmounted and replaced by their subvolume mounts
+# Note: dev, proc, sys, run, tmp, mnt, media directories are preserved as copied
+# They will be populated/mounted normally at boot time
+# This preserves the exact filesystem structure for true migration
 ```
 
-**Note:** This completes in seconds due to CoW reflinks. The cp creates metadata pointers to existing data blocks; actual deduplication happens when we unmount the old top-level data.
+**Explanation:**
+- Steps 4.2a and 4.2b copy with `--reflink=always` to guarantee reflinks (no silent full copies)
+- Step 4.2c copies /var/log with `--reflink=auto` because it may contain mixed CoW/NOCOW source files (see Phase 4 overview)
+- cp -ax crosses destination mount boundaries, so this operation populates @, @home, @var_cache, @libvirt_images, and @swap simultaneously
+- All copies complete in seconds due to CoW reflinks
 
-### 4.3 Copy /home
+### 4.3 Create Swapfile in @swap Subvolume
 
-```bash
-sudo cp -ax --reflink=always /mnt/btrfs/home/. /mnt/new/home/
-```
+The old swapfile (`/swap.img` at top-level) was deleted in step 4.2d. Create a new swapfile in the @swap subvolume.
 
-**Note:** This completes in seconds due to CoW reflinks.
-
-### 4.4 Copy /var/log
-
-```bash
-# NOCOW is automatically inherited from @var_log subvolume property
-sudo cp -ax --reflink=always /mnt/btrfs/var/log/. /mnt/new/var/log/
-```
-
-**Note:** This completes in seconds due to CoW reflinks.
-
-### 4.5 Copy /var/cache
-
-```bash
-sudo cp -ax --reflink=always /mnt/btrfs/var/cache/. /mnt/new/var/cache/
-```
-
-**Note:** This completes in seconds due to CoW reflinks.
-
-### 4.6 Copy /var/lib/libvirt/images (if exists)
-
-```bash
-# Copy VM disk images to @libvirt_images subvolume
-# NOCOW is automatically inherited from @libvirt_images subvolume property
-if [ -d /mnt/btrfs/var/lib/libvirt/images ] && [ -n "$(ls -A /mnt/btrfs/var/lib/libvirt/images)" ]; then
-  sudo cp -ax --reflink=always /mnt/btrfs/var/lib/libvirt/images/. /mnt/new/var/lib/libvirt/images/
-else
-  echo "No VM images found - skipping"
-fi
-```
-
-**Note:** This completes in seconds due to CoW reflinks.
-
-### 4.7 Handle Swapfile
-
-Check what size swapfile you had (from Phase 1.4 notes).  
+Check what size swapfile you had (from Phase 1.4 notes).
 Typical sizes: 8G, 16G, or equal to RAM size
 
 **Option 1: Modern btrfs-native method (recommended):**
@@ -402,7 +411,7 @@ lsattr /mnt/new/swap/swap.img
 
 **Note:** Both methods produce the same result. The btrfs-native method is simpler and ensures proper attributes, while the traditional method works on older systems.
 
-### 4.8 Mount and Copy EFI Partition
+### 4.4 Mount EFI Partition
 
 Check you EFI partition and mount point (from Phase 1.3 notes). This guide assumes `/dev/nvme0n1p1` is mounted as `/boot/efi`.
 
