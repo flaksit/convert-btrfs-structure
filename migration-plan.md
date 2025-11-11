@@ -307,12 +307,10 @@ sudo ./4.1-prepare-mount-points.sh /dev/nvme0n1p5
 
 **Manual commands:**
 ```bash
-# Create mount points in live environment
-sudo mkdir -p /mnt/old
+# Create mount point for new subvolumes
 sudo mkdir -p /mnt/new
 
-# /mnt/btrfs is already mounted to top-level, so use it as "old"
-# We'll create separate mounts for clarity
+# /mnt/btrfs is already mounted to top-level (from Phase 2.2)
 
 # Mount new subvolumes
 sudo mount -t btrfs -o subvol=@ /dev/nvme0n1p5 /mnt/new

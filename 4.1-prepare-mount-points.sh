@@ -42,9 +42,8 @@ echo "=== Step 4.1: Prepare Mount Points ==="
 echo "Device: $DEVICE"
 echo ""
 
-# Create mount points in live environment
-echo "Creating mount point directories..."
-mkdir -p /mnt/old
+# Create mount point for new subvolumes
+echo "Creating mount point directory..."
 mkdir -p /mnt/new
 
 echo "/mnt/btrfs is already mounted to top-level (from Phase 2.2)"
