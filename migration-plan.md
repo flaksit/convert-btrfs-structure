@@ -134,29 +134,32 @@ This script will:
 #### 1.2.1 Save Configuration Files
 
 ```bash
+# Create backup directory
+mkdir -p ~/btrfs-conversion-current-config-backup
+
 # Save configuration files
-sudo cp /etc/fstab ~/fstab.backup
-sudo cp /boot/grub/grub.cfg ~/grub.cfg.backup
-sudo cp /etc/default/grub ~/grub.default.backup
+sudo cp /etc/fstab ~/btrfs-conversion-current-config-backup/fstab.backup
+sudo cp /boot/grub/grub.cfg ~/btrfs-conversion-current-config-backup/grub.cfg.backup
+sudo cp /etc/default/grub ~/btrfs-conversion-current-config-backup/grub.default.backup
 ```
 
 #### 1.2.2 Document Current State
 
 ```bash
 # Document current state
-mount | grep btrfs > ~/mounts.backup
-sudo btrfs subvolume list / > ~/subvolumes.backup
-df -h > ~/disk-usage.backup
+mount | grep btrfs > ~/btrfs-conversion-current-config-backup/mounts.backup
+sudo btrfs subvolume list / > ~/btrfs-conversion-current-config-backup/subvolumes.backup
+df -h > ~/btrfs-conversion-current-config-backup/disk-usage.backup
 ```
 
 #### 1.2.3 List What You're About to Migrate
 
 ```bash
 # List what you're about to migrate
-sudo du -sh /home/* > ~/home-sizes.backup
-sudo du -sh /var/log > ~/log-size.backup
-sudo du -sh /var/cache > ~/cache-size.backup
-sudo du -sh /var/lib/libvirt/images 2>/dev/null > ~/libvirt-images-size.backup || echo "No libvirt images" > ~/libvirt-images-size.backup
+sudo du -sh /home/* > ~/btrfs-conversion-current-config-backup/home-sizes.backup
+sudo du -sh /var/log > ~/btrfs-conversion-current-config-backup/log-size.backup
+sudo du -sh /var/cache > ~/btrfs-conversion-current-config-backup/cache-size.backup
+sudo du -sh /var/lib/libvirt/images 2>/dev/null > ~/btrfs-conversion-current-config-backup/libvirt-images-size.backup || echo "No libvirt images" > ~/btrfs-conversion-current-config-backup/libvirt-images-size.backup
 ```
 
 #### 1.2.4 Verify and Document EFI Mount Point
@@ -181,10 +184,10 @@ sudo du -sh /var/lib/libvirt/images 2>/dev/null > ~/libvirt-images-size.backup |
     else
         echo "WARNING: No EFI partition mounted!"
     fi
-} > ~/efi-config.backup
+} > ~/btrfs-conversion-current-config-backup/efi-config.backup
 
 # Display the configuration
-cat ~/efi-config.backup
+cat ~/btrfs-conversion-current-config-backup/efi-config.backup
 ```
 
 **Expected:** The EFI partition should be mounted at `/boot/efi` from `/dev/nvme0n1p1` (standard for Ubuntu). If yours differs, you'll need to adjust the commands in Phase 4.5 and Phase 6.4 accordingly.
@@ -201,10 +204,10 @@ cat ~/efi-config.backup
     echo ""
     echo "All swap devices:"
     swapon --show
-} > ~/swapfile-config.backup
+} > ~/btrfs-conversion-current-config-backup/swapfile-config.backup
 
 # Display the configuration
-cat ~/swapfile-config.backup
+cat ~/btrfs-conversion-current-config-backup/swapfile-config.backup
 ```
 
 **Note:** Note the swapfile size from the output. You'll need it when recreating the swapfile in Phase 4.4.
@@ -215,7 +218,7 @@ After completing all documentation steps above, copy the files to your NAS backu
 
 ```bash
 # Keep these files safe - copy them to NAS backup
-cp ~/*.backup /mnt/backup/system-backup-$(date +%Y%m%d)/
+cp ~/btrfs-conversion-current-config-backup/*.backup /mnt/backup/system-backup-$(date +%Y%m%d)/
 
 # Verify files were copied
 ls -la /mnt/backup/system-backup-$(date +%Y%m%d)/*.backup

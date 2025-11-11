@@ -21,10 +21,13 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # Determine the backup directory
-BACKUP_DIR="$HOME"
+BACKUP_DIR="$HOME/btrfs-conversion-current-config-backup"
 if [ -n "$SUDO_USER" ]; then
-    BACKUP_DIR="/home/$SUDO_USER"
+    BACKUP_DIR="/home/$SUDO_USER/btrfs-conversion-current-config-backup"
 fi
+
+# Create the backup directory if it doesn't exist
+mkdir -p "$BACKUP_DIR"
 
 echo "Saving documentation files to: $BACKUP_DIR"
 echo ""
