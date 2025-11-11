@@ -214,14 +214,14 @@ cat ~/btrfs-conversion-current-config-backup/swapfile-config.backup
 
 #### 1.2.6 Copy All Documentation to Backup
 
-After completing all documentation steps above, copy the files to your NAS backup:
+After completing all documentation steps above, copy the entire directory to your NAS backup:
 
 ```bash
-# Keep these files safe - copy them to NAS backup
-cp ~/btrfs-conversion-current-config-backup/*.backup /mnt/backup/system-backup-$(date +%Y%m%d)/
+# Keep these files safe - copy entire directory to NAS backup
+cp -a ~/btrfs-conversion-current-config-backup /mnt/backup/system-backup-$(date +%Y%m%d)/
 
 # Verify files were copied
-ls -la /mnt/backup/system-backup-$(date +%Y%m%d)/*.backup
+ls -la /mnt/backup/system-backup-$(date +%Y%m%d)/btrfs-conversion-current-config-backup/
 ```
 
 ### 1.3 Prepare Live USB

@@ -134,8 +134,9 @@ if mount | grep -q "/mnt/backup"; then
         BACKUP_TARGET=$(ls -td /mnt/backup/system-backup-*/ 2>/dev/null | head -1)
         if [ -n "$BACKUP_TARGET" ]; then
             echo "Copying to: $BACKUP_TARGET"
-            cp "$BACKUP_DIR"/*.backup "$BACKUP_TARGET/"
+            cp -a "$BACKUP_DIR" "$BACKUP_TARGET/"
             echo -e "${GREEN}✓ Documentation files copied to backup location${NC}"
+            echo "Files are in: ${BACKUP_TARGET}btrfs-conversion-current-config-backup/"
         else
             echo -e "${YELLOW}WARNING: No system-backup-* directory found in /mnt/backup${NC}"
             echo "You can manually copy the files later after creating the system backup in Phase 1.1"
