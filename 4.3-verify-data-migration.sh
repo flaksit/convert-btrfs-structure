@@ -106,10 +106,6 @@ else
     echo ""
     echo "To identify which specific files differ, you can use:"
     echo "  sudo diff -rq --no-dereference /mnt/btrfs/var /mnt/new/var"
-    echo ""
-    echo "Or to compare entire root (excluding subvolume mounts):"
-    echo "  sudo diff -rq --no-dereference /mnt/btrfs /mnt/new \\"
-    echo "    --exclude=home --exclude=var --exclude=swap --exclude=.snapshots"
     exit 1
 fi
 
