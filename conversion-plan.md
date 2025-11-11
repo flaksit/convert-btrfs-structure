@@ -849,7 +849,7 @@ ls -la /mnt/new/usr/bin/ | head -10
 ls -la /mnt/new/home/  # Should show your user directories
 ls -la /mnt/new/var/log/  # Should show log files
 ls -la /mnt/new/var/cache/apt/  # Should show apt cache
-ls -la /mnt/new/var/lib/libvirt/images/ 2>/dev/null  # Should show VM disk images if you have VMs
+ls -la /mnt/new/var/lib/libvirt/images/  # Should show VM disk images if you have VMs
 ls -lh /mnt/new/swap/swap.img  # Should show swapfile with correct size (e.g., 8.0G)
 
 # Verify NOCOW properties are set correctly
