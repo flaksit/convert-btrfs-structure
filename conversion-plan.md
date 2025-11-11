@@ -254,8 +254,13 @@ lsb_release -a
 
 ### 2.2 Mount the Filesystem
 
+⚠️ **IMPORTANT: Replace `/dev/nvme0n1p5` with your actual btrfs device path**
+
+The device path shown in these commands is specific to the example system. Check your actual device from `mounts.backup` (created in Phase 1.2.2) before running these commands.
+
 ```bash
 # Mount top-level subvolume (subvolid=5) where all your current data lives
+# IMPORTANT: Replace /dev/nvme0n1p5 with YOUR actual device path
 sudo mkdir -p /mnt/btrfs
 sudo mount -t btrfs -o subvolid=5 /dev/nvme0n1p5 /mnt/btrfs
 
@@ -364,13 +369,36 @@ The /var/log directory may contain a mix of files with different CoW attributes 
 
 ### 4.1 Prepare Mount Points
 
-**Script available:** If you have this repository checked out, you can run:
+⚠️ **CRITICAL: Replace the hardcoded device path**
+
+Throughout this conversion plan, `/dev/nvme0n1p5` is shown as the btrfs device. **This is specific to the example system and will NOT match your hardware.**
+
+**You MUST find your actual btrfs device path before proceeding:**
+
 ```bash
-cd /mnt/btrfs/home/user/convert-btrfs-structure  # Adjust path as needed
-sudo ./4.1-prepare-mount-points.sh /dev/nvme0n1p5
+# Check the mounts.backup file you created in Phase 1.2.2
+cat ~/btrfs-conversion-current-config-backup/mounts.backup
 ```
 
+Look for the line showing your btrfs mount. It will look like:
+```
+/dev/XXX on / type btrfs (...)
+```
+
+Replace `XXX` with your actual device (could be `/dev/sda3`, `/dev/nvme0n1p5`, `/dev/vda1`, etc.)
+
+**Script available:** If you have this repository checked out, the script handles this automatically when you provide the correct device argument:
+```bash
+cd /mnt/btrfs/home/user/convert-btrfs-structure  # Adjust path as needed
+sudo ./4.1-prepare-mount-points.sh /dev/YOUR_ACTUAL_DEVICE
+```
+
+Replace `/dev/YOUR_ACTUAL_DEVICE` with the device path from your `mounts.backup` file. The script will use this to mount all subvolumes correctly.
+
 **Manual commands:**
+
+⚠️ Replace all instances of `/dev/nvme0n1p5` in the commands below with your actual device path from `mounts.backup`.
+
 ```bash
 # Create mount point for new subvolumes
 sudo mkdir -p /mnt/new
@@ -378,6 +406,7 @@ sudo mkdir -p /mnt/new
 # /mnt/btrfs is already mounted to top-level (from Phase 2.2)
 
 # Mount new subvolumes
+# IMPORTANT: Replace /dev/nvme0n1p5 with YOUR actual device path
 sudo mount -t btrfs -o subvol=@ /dev/nvme0n1p5 /mnt/new
 sudo mkdir -p /mnt/new/{home,var/log,var/cache,var/lib/libvirt/images,swap,.snapshots}
 sudo mount -t btrfs -o subvol=@home /dev/nvme0n1p5 /mnt/new/home
@@ -387,7 +416,7 @@ sudo mount -t btrfs -o subvol=@libvirt_images /dev/nvme0n1p5 /mnt/new/var/lib/li
 sudo mount -t btrfs -o subvol=@swap /dev/nvme0n1p5 /mnt/new/swap
 sudo mount -t btrfs -o subvol=@snapshots /dev/nvme0n1p5 /mnt/new/.snapshots
 
-# Verify all mounts
+# Verify all mounts (again, replace nvme0n1p5 with YOUR device)
 mount | grep nvme0n1p5
 ```
 
