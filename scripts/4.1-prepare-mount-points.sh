@@ -1,8 +1,8 @@
 #!/bin/bash
-# Step 4.1: Prepare Mount Points for Btrfs Migration
+# Step 4.1: Prepare Mount Points for Btrfs Conversion
 #
 # This script mounts all the new subvolumes created in Phase 3
-# at appropriate mount points for data migration.
+# at appropriate mount points for data Conversion.
 #
 # Usage: sudo ./4.1-prepare-mount-points.sh <device>
 #   Example: sudo ./4.1-prepare-mount-points.sh /dev/nvme0n1p5
@@ -70,4 +70,4 @@ mount | grep "$(basename "$DEVICE")"
 
 echo ""
 echo "✓ Step 4.1 completed successfully"
-echo "  All subvolumes are now mounted and ready for data migration"
+echo "  All subvolumes are now mounted and ready for data Conversion"

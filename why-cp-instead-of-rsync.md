@@ -1,10 +1,10 @@
-## Research Notes: Why `cp -a` Over `rsync` for Btrfs Migrations
+## Research Notes: Why `cp -a` Over `rsync` for Btrfs Conversions
 
-This section documents the technical reasoning behind using `cp -a` instead of `rsync` for this btrfs subvolume migration.
+This section documents the technical reasoning behind using `cp -a` instead of `rsync` for this btrfs subvolume Conversion.
 
 ### Summary
 
-The migration uses `cp -a` for all file copies, which is significantly faster and more appropriate than `rsync` for same-filesystem btrfs migrations:
+The Conversion uses `cp -a` for all file copies, which is significantly faster and more appropriate than `rsync` for same-filesystem btrfs Conversions:
 
 - **`cp -a` uses CoW reflinks by default** (since coreutils 9.0 on Ubuntu 24.04): Copies are metadata-only operations, essentially instantaneous regardless of file size
 - **`rsync` lacks native reflink support**: Even for local copies on the same btrfs filesystem, rsync performs full data transfer (reading and writing all data blocks), making it orders of magnitude slower
@@ -26,7 +26,7 @@ The migration uses `cp -a` for all file copies, which is significantly faster an
    - `cp -a` with reflinks: ~5-10 seconds (metadata-only operation)
    - `rsync`: 20-45 minutes (full I/O bound data transfer)
 
-### Why `cp -a` is Superior for This Migration
+### Why `cp -a` is Superior for This Conversion
 
 1. **Automatic reflink support**: Since coreutils 9.0 (September 2021), `cp` defaults to `--reflink=auto`, which automatically uses CoW reflinks on btrfs and falls back to standard copies on other filesystems.
 
@@ -50,8 +50,8 @@ The migration uses `cp -a` for all file copies, which is significantly faster an
 - Incremental/resumable backups (when destination already exists)
 - Complex filtering scenarios with many inclusions/exclusions
 
-For this same-filesystem btrfs migration, none of these apply.
+For this same-filesystem btrfs Conversion, none of these apply.
 
 ### Alternative: `btrfs send/receive`
 
-For btrfs-to-btrfs transfers, `btrfs send | btrfs receive` preserves all btrfs-specific features and is more efficient for incremental updates. However, for initial full-volume migration, `cp -a` is still faster and simpler.
+For btrfs-to-btrfs transfers, `btrfs send | btrfs receive` preserves all btrfs-specific features and is more efficient for incremental updates. However, for initial full-volume Conversion, `cp -a` is still faster and simpler.

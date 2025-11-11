@@ -1,14 +1,14 @@
-This is a comprehensive review of the Btrfs migration plan provided by your architect.
+This is a comprehensive review of the Btrfs Conversion plan provided by your architect.
 
 The overall strategy—moving from a top-level Btrfs layout to a flat subvolume layout (`@`, `@home`, etc.)—is sound standard practice for modern Linux systems, enabling tools like Timeshift and Snapper.
 
-However, the provided `migration-plan.md` contains **critical technical flaws** that will likely cause the migration to fail catastrophically (infinite data copy loops) or result in data loss if followed exactly as written.
+However, the provided `Conversion-plan.md` contains **critical technical flaws** that will likely cause the Conversion to fail catastrophically (infinite data copy loops) or result in data loss if followed exactly as written.
 
 Below is a structured report of findings, graded by severity.
 
 ## Severity Legend
-* 🔴 **CRITICAL**: Will likely cause migration failure, non-bootable system, or data loss. Must be addressed.
-* 🟠 **HIGH**: Significant risk factor that should be mitigated for a safe migration.
+* 🔴 **CRITICAL**: Will likely cause Conversion failure, non-bootable system, or data loss. Must be addressed.
+* 🟠 **HIGH**: Significant risk factor that should be mitigated for a safe Conversion.
 * 🟡 **MEDIUM**: deviation from best practice or potential for confusion.
 * 🔵 **LOW**: Clarification or optimization suggestion.
 
@@ -48,8 +48,8 @@ sudo cp -ax --reflink=always /mnt/btrfs/. /mnt/new/
 ### 3. Missing "Safety Net" Snapshot
 * **Location:** Pre-Phase 3
 * **Issue:** The plan begins destructive changes (creating/deleting subvolumes, later deleting data) without a fast rollback option on the disk itself. While you have an external NAS backup, restoring 150GB+ over network is slow if a minor mistake is made.
-* **Remediation:** Before Phase 3, create a snapshot of the entire current top-level state. This allows near-instant rollback if the migration commands get messy.
-    * *Action:* `sudo btrfs subvolume snapshot /mnt/btrfs /mnt/btrfs/backup-pre-migration`
+* **Remediation:** Before Phase 3, create a snapshot of the entire current top-level state. This allows near-instant rollback if the Conversion commands get messy.
+    * *Action:* `sudo btrfs subvolume snapshot /mnt/btrfs /mnt/btrfs/backup-pre-Conversion`
 
 ### 4. Fstab Hardcoded UUIDs
 * **Location:** Phase 5.1

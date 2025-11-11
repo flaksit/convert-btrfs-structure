@@ -1,11 +1,11 @@
 #!/bin/bash
-# Step 4.3: Verify Data Migration
+# Step 4.3: Verify Data Conversion
 #
 # This script verifies that the copy operations in Phase 4.2 completed
 # successfully by comparing file counts and disk usage between source
 # and destination directories.
 #
-# Usage: sudo ./4.3-verify-data-migration.sh
+# Usage: sudo ./4.3-verify-data-Conversion.sh
 
 set -e  # Exit on error
 set -u  # Exit on undefined variable
@@ -27,7 +27,7 @@ if [ ! -d /mnt/new ]; then
     exit 1
 fi
 
-echo "=== Step 4.3: Verify Data Migration ==="
+echo "=== Step 4.3: Verify Data Conversion ==="
 echo ""
 echo "Comparing file counts and disk usage between source and destination..."
 echo ""
@@ -96,7 +96,7 @@ if [ $mismatch_found -eq 0 ]; then
     echo "  File counts match exactly for all directories"
     echo "  Disk usage is similar (small differences are normal with CoW reflinks)"
     echo ""
-    echo "The migration appears successful. You can proceed to the next step."
+    echo "The Conversion appears successful. You can proceed to the next step."
 else
     echo "✗ Verification FAILED"
     echo "  File count mismatches detected!"
