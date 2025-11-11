@@ -41,13 +41,28 @@ echo ""
 
 cd /mnt/btrfs
 
+# Get list of top-level subvolumes to exclude
+# btrfs subvolume list -o shows only top-level subvolumes with their names in the last field
+subvol_list=$(btrfs subvolume list -o /mnt/btrfs 2>/dev/null | awk '{print $NF}' || echo "")
+
+# Build find exclusion arguments for all subvolumes and var directory
+exclude_args="! -name var"
+if [ -n "$subvol_list" ]; then
+    while IFS= read -r subvol; do
+        subvol_name=$(basename "$subvol")
+        exclude_args="$exclude_args ! -name $subvol_name"
+    done <<< "$subvol_list"
+fi
+
 # Count items to copy for progress indication
-total_items=$(find . -maxdepth 1 -mindepth 1 ! -name var | wc -l)
-echo "Copying $total_items top-level items (excluding var/)..."
+# shellcheck disable=SC2086
+total_items=$(find . -maxdepth 1 -mindepth 1 $exclude_args | wc -l)
+echo "Copying $total_items top-level items (excluding var/ and subvolumes)..."
 echo ""
 
-# Copy all top-level items except /var using reflinks
-find . -maxdepth 1 -mindepth 1 ! -name var -print0 | \
+# Copy all top-level items except /var and any subvolumes using reflinks
+# shellcheck disable=SC2086
+find . -maxdepth 1 -mindepth 1 $exclude_args -print0 | \
   xargs -0 -I {} cp -ax --reflink=always {} /mnt/new/
 
 echo ""
