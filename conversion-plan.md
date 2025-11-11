@@ -791,6 +791,9 @@ This happens because:
 2. When chrooted from a live environment, you don't have access to modify the host system's EFI variables
 3. However, **GRUB still successfully installs the bootloader files** to the EFI partition
 
+Why this is fine in most cases:  
+Since your system was already booting via UEFI before the Conversion, the UEFI firmware already has a boot entry pointing to `/boot/efi/EFI/ubuntu/grubx64.efi`. The warning only means the chroot can't update EFI variables - but the files were written successfully, and the existing firmware entry remains valid.
+
 **Verification that installation succeeded:**
 
 ```bash
@@ -798,10 +801,6 @@ This happens because:
 ls -la /boot/efi/EFI/ubuntu/
 # Should show: grubx64.efi, shimx64.efi, and other GRUB files
 ```
-
-**Why this is fine in most cases:**
-
-Since your system was already booting via UEFI before the Conversion, the UEFI firmware already has a boot entry pointing to `/boot/efi/EFI/ubuntu/grubx64.efi`. The warning only means the chroot can't update EFI variables - but the files were written successfully, and the existing firmware entry remains valid.
 
 **If system doesn't boot after reboot:**
 
