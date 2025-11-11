@@ -379,6 +379,8 @@ sudo rm -f /mnt/new/swap.img
 
 Before proceeding, verify that the copy operations completed successfully by comparing file counts and disk usage between source and destination.
 
+**Note:** Run this verification as root (or with sudo) to ensure access to all directories.
+
 ```bash
 # Compare file counts for key directories
 echo "=== File Count Comparison ==="
