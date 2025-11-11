@@ -450,6 +450,17 @@ done
 - Disk usage should be very similar (may differ slightly due to CoW metadata)
 - If counts don't match, review the copy commands in Phase 4.2 before proceeding
 
+**If differences are found:**
+You can identify which specific files differ using `diff`:
+```bash
+# Compare a specific directory to find differing files
+sudo diff -rq --no-dereference /mnt/btrfs/var /mnt/new/var
+
+# Or compare entire root (excluding the new subvolume mounts themselves)
+sudo diff -rq --no-dereference /mnt/btrfs /mnt/new \
+  --exclude=home --exclude=var --exclude=swap --exclude=.snapshots
+```
+
 **Note:** The disk usage values shown by `du -s` may be small (often showing 0 or very small numbers) because CoW reflinks share the same disk blocks. This is normal and expected. The file counts are the primary verification metric.
 
 ### 4.4 Create Swapfile in @swap Subvolume
