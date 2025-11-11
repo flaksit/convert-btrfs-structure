@@ -1004,7 +1004,7 @@ ls -la ~
 # All your files should be present
 
 # Test opening some files
-cat ~/fstab.backup  # Should show your old fstab from backup
+cat ~/btrfs-conversion-current-config-backup/fstab.backup  # Should show your old fstab from backup
 ```
 
 ### 8.6 Create Initial Snapshot
