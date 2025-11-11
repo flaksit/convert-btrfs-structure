@@ -441,13 +441,28 @@ sudo ./4.2a-copy-except-var.sh
 
 **Manual commands:**
 ```bash
-# Copy all top-level items except /var using reflinks (instant)
+# Copy all top-level items except /var and subvolumes using reflinks (instant)
 # Source: /mnt/btrfs (top-level where current data lives)
 # Destination: /mnt/new (mounted as @, with subvolumes mounted as subdirectories)
 
 cd /mnt/btrfs
-find . -maxdepth 1 -mindepth 1 ! -name var -print0 | \
-  sudo xargs -0 -I {} cp -ax --reflink=always {} /mnt/new/
+
+# Get list of top-level subvolumes to exclude dynamically
+# (handles @, @home, @var_log, snapshots like backup-pre-migration, etc.)
+subvol_list=$(btrfs subvolume list -o /mnt/btrfs 2>/dev/null | awk '{print $NF}' || echo "")
+
+# Build find exclusion arguments for all subvolumes and var directory
+exclude_args="! -name var"
+if [ -n "$subvol_list" ]; then
+    while IFS= read -r subvol; do
+        subvol_name=$(basename "$subvol")
+        exclude_args="$exclude_args ! -name $subvol_name"
+    done <<< "$subvol_list"
+fi
+
+# Copy with dynamic exclusions (handles any current or future subvolumes)
+find . -maxdepth 1 -mindepth 1 $exclude_args -print0 | \
+  xargs -0 -I {} cp -ax --reflink=always {} /mnt/new/
 ```
 
 #### Step 4.2b: Copy /var except /var/log
@@ -488,10 +503,9 @@ sudo cp -ax --reflink=auto /mnt/btrfs/var/log/. /mnt/new/var/log/
 #### Step 4.2d: Cleanup
 
 ```bash
-# Remove old/unused subvolume directories created in the original top-level
-sudo rm -rf /mnt/new/@*  # Remove old subvolume directories (@, @home, @home-old-unused, etc.)
-
 # Remove old swapfile (new one will be created in @swap subvolume in step 4.4)
+# Note: Subvolumes (@, @home, @var_log, etc.) are NOT copied due to dynamic exclusion
+# in steps 4.2a and 4.2b, so there's nothing to clean up
 sudo rm -f /mnt/new/swap.img
 
 # Note: dev, proc, sys, run, tmp, mnt, media directories are preserved as copied
@@ -500,6 +514,9 @@ sudo rm -f /mnt/new/swap.img
 ```
 
 #### Explanation
+- Steps 4.2a and 4.2b dynamically detect and exclude all top-level subvolumes using `btrfs subvolume list`, preventing them from being copied
+  - This approach is generic and handles any subvolume names (@, @home, snapshots like backup-pre-migration, etc.)
+  - Exclusion is dynamic, so future subvolumes won't accidentally get copied
 - Steps 4.2a and 4.2b copy with `--reflink=always` to guarantee reflinks (no silent full copies)
 - Step 4.2c copies /var/log with `--reflink=auto` because it may contain mixed CoW/NOCOW source files (see Phase 4 overview)
 - cp -ax crosses destination mount boundaries, so this operation populates @, @home, @var_cache, @libvirt_images, and @swap simultaneously
