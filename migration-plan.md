@@ -614,6 +614,41 @@ grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=ubunt
 # Installation finished. No error reported.
 ```
 
+**Note on "EFI variables cannot be set" warning:**
+
+If you see this warning, it's **expected and harmless** when running grub-install from a chroot environment in a live USB:
+
+```
+EFI variables cannot be set on this system.
+You will have to complete the GRUB setup manually.
+Installation finished. No errors reported.
+```
+
+This happens because:
+1. EFI variables are managed by the running kernel and stored in NVRAM
+2. When chrooted from a live environment, you don't have access to modify the host system's EFI variables
+3. However, **GRUB still successfully installs the bootloader files** to the EFI partition
+
+**Verification that installation succeeded:**
+
+```bash
+# While still in chroot, verify GRUB files were installed
+ls -la /boot/efi/EFI/ubuntu/
+# Should show: grubx64.efi, shimx64.efi, and other GRUB files
+```
+
+**Why this is fine in most cases:**
+
+Since your system was already booting via UEFI before the migration, the UEFI firmware already has a boot entry pointing to `/boot/efi/EFI/ubuntu/grubx64.efi`. The warning only means the chroot can't update EFI variables - but the files were written successfully, and the existing firmware entry remains valid.
+
+**If system doesn't boot after reboot:**
+
+In the unlikely event the system doesn't boot, you can create a UEFI boot entry manually from the live USB or after successful boot:
+
+```bash
+sudo efibootmgr -c -d /dev/nvme0n1 -p 1 -L "ubuntu" -l '\EFI\ubuntu\shimx64.efi'
+```
+
 ### 6.5 Update initramfs
 
 Still inside chroot:
