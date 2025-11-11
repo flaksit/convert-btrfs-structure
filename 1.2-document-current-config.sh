@@ -65,20 +65,30 @@ echo -e "${YELLOW}Step 4: Documenting EFI configuration...${NC}"
         echo "$EFI_MOUNT"
         echo ""
 
-        # Extract the mount point from the grep output
-        EFI_MOUNTPOINT=$(echo "$EFI_MOUNT" | awk '{print $3}' | head -1)
-        echo "Detected EFI mount point: $EFI_MOUNTPOINT"
-        echo ""
-        echo "Details for $EFI_MOUNTPOINT:"
-        findmnt "$EFI_MOUNTPOINT" 2>/dev/null || echo "findmnt failed for $EFI_MOUNTPOINT"
+        # Extract the mount point from the grep output, excluding efivarfs
+        EFI_MOUNTPOINT=$(echo "$EFI_MOUNT" | grep -v efivarfs | awk '{print $3}' | head -1)
+        if [ -n "$EFI_MOUNTPOINT" ]; then
+            echo "Detected EFI mount point: $EFI_MOUNTPOINT"
+            echo ""
+            echo "Details for $EFI_MOUNTPOINT:"
+            findmnt "$EFI_MOUNTPOINT" 2>/dev/null || echo "findmnt failed for $EFI_MOUNTPOINT"
+            echo ""
+            echo "EFI partition device:"
+            # Get the device from findmnt and use it with blkid
+            EFI_DEVICE=$(findmnt -n -o SOURCE "$EFI_MOUNTPOINT" 2>/dev/null)
+            if [ -n "$EFI_DEVICE" ]; then
+                blkid "$EFI_DEVICE" || echo "blkid failed for $EFI_DEVICE"
+            else
+                echo "Could not determine device for $EFI_MOUNTPOINT"
+            fi
+        else
+            echo "WARNING: No EFI partition mount point found (only efivarfs detected)"
+        fi
     else
         echo "No EFI mounts found"
         echo ""
         echo "WARNING: No EFI partition mounted!"
     fi
-    echo ""
-    echo "EFI partition device:"
-    blkid | grep -i "TYPE=\"vfat\"" | grep -E "(nvme0n1p1|sda1)" || echo "EFI partition not identified"
 } > "$BACKUP_DIR/efi-config.backup"
 cat "$BACKUP_DIR/efi-config.backup"
 echo "✓ EFI configuration documented"
