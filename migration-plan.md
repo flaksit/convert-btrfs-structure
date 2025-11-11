@@ -25,6 +25,8 @@ Your system currently boots from the btrfs top-level subvolume (subvolid=5). Alt
 **Downtime:** System will be offline during migration
 **Risk level:** Medium (bootloader changes involved)
 
+**Important:** Before starting the migration, it's recommended to have this repository checked out somewhere on your system (e.g., `/home/user/convert-btrfs-structure`). This way, when you boot into the Live USB environment and mount your filesystem at `/mnt/btrfs`, the migration scripts will be available at `/mnt/btrfs/home/user/convert-btrfs-structure/`, making it much easier to execute the migration steps without typing long commands manually.
+
 ---
 
 ## Target Subvolume Structure
@@ -297,13 +299,18 @@ The /var/log directory may contain a mix of files with different CoW attributes 
 
 ### 4.1 Prepare Mount Points
 
+**Script available:** If you have this repository checked out, you can run:
 ```bash
-# Create mount points in live environment
-sudo mkdir -p /mnt/old
+cd /mnt/btrfs/home/user/convert-btrfs-structure  # Adjust path as needed
+sudo ./4.1-prepare-mount-points.sh /dev/nvme0n1p5
+```
+
+**Manual commands:**
+```bash
+# Create mount point for new subvolumes
 sudo mkdir -p /mnt/new
 
-# /mnt/btrfs is already mounted to top-level, so use it as "old"
-# We'll create separate mounts for clarity
+# /mnt/btrfs is already mounted to top-level (from Phase 2.2)
 
 # Mount new subvolumes
 sudo mount -t btrfs -o subvol=@ /dev/nvme0n1p5 /mnt/new
@@ -325,6 +332,13 @@ Copy root filesystem from top-level to @ and other subvolumes, using multiple `c
 
 #### Step 4.2a: Copy everything except /var
 
+**Script available:** If you have this repository checked out, you can run:
+```bash
+cd /mnt/btrfs/home/user/convert-btrfs-structure  # Adjust path as needed
+sudo ./4.2a-copy-except-var.sh
+```
+
+**Manual commands:**
 ```bash
 # Copy all top-level items except /var using reflinks (instant)
 # Source: /mnt/btrfs (top-level where current data lives)
@@ -337,6 +351,13 @@ find . -maxdepth 1 -mindepth 1 ! -name var -print0 | \
 
 #### Step 4.2b: Copy /var except /var/log
 
+**Script available:** If you have this repository checked out, you can run:
+```bash
+cd /mnt/btrfs/home/user/convert-btrfs-structure  # Adjust path as needed
+sudo ./4.2b-copy-var-except-log.sh
+```
+
+**Manual commands:**
 ```bash
 # Create /var in destination (if not already present)
 sudo mkdir -p /mnt/new/var
@@ -349,6 +370,14 @@ find . -maxdepth 1 -mindepth 1 ! -name log -print0 | \
 
 #### Step 4.2c: Copy /var/log separately (with --reflink=auto)
 
+**Script available:** If you have this repository checked out, you can run:
+```bash
+cd /mnt/btrfs/home/user/convert-btrfs-structure  # Adjust path as needed
+sudo ./4.2c-copy-var-log.sh
+```
+*Note: This script also performs the cleanup from step 4.2d.*
+
+**Manual commands:**
 ```bash
 # Copy /var/log with --reflink=auto to handle mixed CoW/NOCOW source files
 # (most files are CoW, but some may be NOCOW from earlier configurations)
@@ -378,6 +407,14 @@ sudo rm -f /mnt/new/swap.img
 ### 4.3 Verify Data Migration
 
 Before proceeding, verify that the copy operations completed successfully by comparing file counts and disk usage between source and destination.
+
+**Script available:** If you have this repository checked out, you can run:
+```bash
+cd /mnt/btrfs/home/user/convert-btrfs-structure  # Adjust path as needed
+sudo ./4.3-verify-data-migration.sh
+```
+
+**Manual commands:**
 
 **Note:** Run this verification as root (or with sudo) to ensure access to all directories.
 
@@ -412,6 +449,13 @@ done
 - File counts should match exactly for each directory
 - Disk usage should be very similar (may differ slightly due to CoW metadata)
 - If counts don't match, review the copy commands in Phase 4.2 before proceeding
+
+**If differences are found:**
+You can identify which specific files differ using `diff`:
+```bash
+# Compare a specific directory to find differing files
+sudo diff -rq --no-dereference /mnt/btrfs/var /mnt/new/var
+```
 
 **Note:** The disk usage values shown by `du -s` may be small (often showing 0 or very small numbers) because CoW reflinks share the same disk blocks. This is normal and expected. The file counts are the primary verification metric.
 
