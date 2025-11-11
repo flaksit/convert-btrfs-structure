@@ -1,7 +1,7 @@
 #!/bin/bash
 # Phase 1.2: Document Current Configuration
 # This script saves all current system configuration and state to backup files
-# Run this BEFORE starting the migration (while system is running normally)
+# Run this BEFORE starting the Conversion (while system is running normally)
 
 set -e  # Exit on any error
 
