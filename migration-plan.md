@@ -146,7 +146,7 @@ findmnt /boot/efi
 mount | grep -i efi
 ```
 
-**Note:** This guide assumes the standard Ubuntu EFI mount point `/boot/efi`, mounted from `/dev/nvme0n1p1`. If yours differs, you'll need to adjust the commands in Phase 4.8 and Phase 6.4 accordingly.
+**Note:** This guide assumes the standard Ubuntu EFI mount point `/boot/efi`, mounted from `/dev/nvme0n1p1`. If yours differs, you'll need to adjust the commands in Phase 4.5 and Phase 6.4 accordingly.
 
 ### 1.4 Check Current Swapfile
 
@@ -155,7 +155,7 @@ mount | grep -i efi
 ls -lh /swap.img
 ```
 
-**Note:** Note the size. You'll need it when recreating the swapfile in Phase 4.7.
+**Note:** Note the size. You'll need it when recreating the swapfile in Phase 4.4.
 
 ### 1.5 Prepare Live USB
 
@@ -361,7 +361,7 @@ sudo cp -ax --reflink=auto /mnt/btrfs/var/log/. /mnt/new/var/log/
 # Remove old/unused subvolume directories created in the original top-level
 sudo rm -rf /mnt/new/@*  # Remove old subvolume directories (@, @home, @home-old-unused, etc.)
 
-# Remove old swapfile (new one will be created in @swap subvolume in step 4.3)
+# Remove old swapfile (new one will be created in @swap subvolume in step 4.4)
 sudo rm -f /mnt/new/swap.img
 
 # Note: dev, proc, sys, run, tmp, mnt, media directories are preserved as copied
@@ -375,7 +375,45 @@ sudo rm -f /mnt/new/swap.img
 - cp -ax crosses destination mount boundaries, so this operation populates @, @home, @var_cache, @libvirt_images, and @swap simultaneously
 - All copies complete in seconds due to CoW reflinks
 
-### 4.3 Create Swapfile in @swap Subvolume
+### 4.3 Verify Data Migration
+
+Before proceeding, verify that the copy operations completed successfully by comparing file counts and disk usage between source and destination.
+
+```bash
+# Compare file counts for key directories
+echo "=== File Count Comparison ==="
+echo "Source /mnt/btrfs vs Destination /mnt/new"
+echo ""
+
+for dir in bin boot etc home lib lib64 opt root sbin srv usr var; do
+    if [ -d "/mnt/btrfs/$dir" ]; then
+        src_count=$(find "/mnt/btrfs/$dir" -type f 2>/dev/null | wc -l)
+        dst_count=$(find "/mnt/new/$dir" -type f 2>/dev/null | wc -l)
+        echo "$dir: source=$src_count files, destination=$dst_count files"
+    fi
+done
+
+echo ""
+echo "=== Disk Usage Comparison (in KB) ==="
+echo ""
+
+for dir in bin boot etc home lib lib64 opt root sbin srv usr var; do
+    if [ -d "/mnt/btrfs/$dir" ]; then
+        src_size=$(du -s "/mnt/btrfs/$dir" 2>/dev/null | awk '{print $1}')
+        dst_size=$(du -s "/mnt/new/$dir" 2>/dev/null | awk '{print $1}')
+        echo "$dir: source=$src_size KB, destination=$dst_size KB"
+    fi
+done
+```
+
+**Expected results:**
+- File counts should match exactly for each directory
+- Disk usage should be very similar (may differ slightly due to CoW metadata)
+- If counts don't match, review the copy commands in Phase 4.2 before proceeding
+
+**Note:** The disk usage values shown by `du -s` may be small (often showing 0 or very small numbers) because CoW reflinks share the same disk blocks. This is normal and expected. The file counts are the primary verification metric.
+
+### 4.4 Create Swapfile in @swap Subvolume
 
 The old swapfile (`/swap.img` at top-level) was deleted in step 4.2d. Create a new swapfile in the @swap subvolume.
 
@@ -411,7 +449,7 @@ lsattr /mnt/new/swap/swap.img
 
 **Note:** Both methods produce the same result. The btrfs-native method is simpler and ensures proper attributes, while the traditional method works on older systems.
 
-### 4.4 Mount EFI Partition
+### 4.5 Mount EFI Partition
 
 Check you EFI partition and mount point (from Phase 1.3 notes). This guide assumes `/dev/nvme0n1p1` is mounted as `/boot/efi`.
 
