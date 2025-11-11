@@ -309,6 +309,13 @@ sudo btrfs subvolume show /mnt/btrfs/backup-pre-Conversion
 
 No existing @ or @home subvolumes exist on your system, so you can proceed directly to creating the new subvolume layout:
 
+**Script available:** If you have this repository checked out, you can run:
+```bash
+cd /mnt/btrfs/home/user/convert-btrfs-structure  # Adjust path as needed
+sudo ./scripts/3-create-subvolumes.sh
+```
+
+**Manual commands:**
 ```bash
 # Create the new subvolumes
 sudo btrfs subvolume create /mnt/btrfs/@
