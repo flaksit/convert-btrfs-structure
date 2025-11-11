@@ -385,7 +385,7 @@ echo "=== File Count Comparison ==="
 echo "Source /mnt/btrfs vs Destination /mnt/new"
 echo ""
 
-for dir in bin boot etc home lib lib64 opt root sbin srv usr var; do
+for dir in boot etc home opt root snap srv usr var; do
     if [ -d "/mnt/btrfs/$dir" ]; then
         src_count=$(find "/mnt/btrfs/$dir" -type f 2>/dev/null | wc -l)
         dst_count=$(find "/mnt/new/$dir" -type f 2>/dev/null | wc -l)
@@ -397,7 +397,7 @@ echo ""
 echo "=== Disk Usage Comparison (in KB) ==="
 echo ""
 
-for dir in bin boot etc home lib lib64 opt root sbin srv usr var; do
+for dir in boot etc home opt root snap srv usr var; do
     if [ -d "/mnt/btrfs/$dir" ]; then
         src_size=$(du -s "/mnt/btrfs/$dir" 2>/dev/null | awk '{print $1}')
         dst_size=$(du -s "/mnt/new/$dir" 2>/dev/null | awk '{print $1}')
