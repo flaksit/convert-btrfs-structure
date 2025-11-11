@@ -388,7 +388,7 @@ cat ~/btrfs-conversion-current-config-backup/mounts.backup
 ```
 
 Look for the line showing your btrfs mount. It will look like:
-```
+```plain
 /dev/XXX on / type btrfs (...)
 ```
 
@@ -780,7 +780,7 @@ grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=ubunt
 
 If you see this warning, it's **expected and harmless** when running grub-install from a chroot environment in a live USB:
 
-```
+```plain
 EFI variables cannot be set on this system.
 You will have to complete the GRUB setup manually.
 Installation finished. No errors reported.
