@@ -114,52 +114,117 @@ ls -la /mnt/backup/system-backup-*/etc/fstab
 
 ### 1.2 Document Current Configuration
 
-Save copies of critical files to your home directory:
+Save copies of critical files and document your current system state. This includes configuration files, mount points, disk usage, EFI setup, and swapfile configuration.
+
+**Script available:** You can run the automated documentation script:
+```bash
+sudo ./1.2-document-current-config.sh
+```
+
+This script will:
+1. Save configuration files (fstab, GRUB configs)
+2. Document current system state (mounts, subvolumes, disk usage)
+3. Record directory sizes for migration planning
+4. Document EFI mount point configuration
+5. Document swapfile configuration
+6. Optionally copy all documentation to your NAS backup
+
+**Manual commands:** If you prefer to run commands manually:
+
+#### 1.2.1 Save Configuration Files
 
 ```bash
+# Create backup directory
+mkdir -p ~/btrfs-conversion-current-config-backup
+
 # Save configuration files
-cp /etc/fstab ~/fstab.backup
-cp /boot/grub/grub.cfg ~/grub.cfg.backup
-cp /etc/default/grub ~/grub.default.backup
+sudo cp /etc/fstab ~/btrfs-conversion-current-config-backup/fstab.backup
+sudo cp /boot/grub/grub.cfg ~/btrfs-conversion-current-config-backup/grub.cfg.backup
+sudo cp /etc/default/grub ~/btrfs-conversion-current-config-backup/grub.default.backup
+```
 
+#### 1.2.2 Document Current State
+
+```bash
 # Document current state
-mount | grep btrfs > ~/mounts.backup
-sudo btrfs subvolume list / > ~/subvolumes.backup
-df -h > ~/disk-usage.backup
+mount | grep btrfs > ~/btrfs-conversion-current-config-backup/mounts.backup
+sudo btrfs subvolume list / > ~/btrfs-conversion-current-config-backup/subvolumes.backup
+df -h > ~/btrfs-conversion-current-config-backup/disk-usage.backup
+```
 
+#### 1.2.3 List What You're About to Migrate
+
+```bash
 # List what you're about to migrate
-du -sh /home/* > ~/home-sizes.backup
-du -sh /var/log > ~/log-size.backup
-du -sh /var/cache > ~/cache-size.backup
-du -sh /var/lib/libvirt/images 2>/dev/null > ~/libvirt-images-size.backup || echo "No libvirt images" > ~/libvirt-images-size.backup
-
-# Keep these files safe - copy them to NAS backup too
-cp ~/*.backup /mnt/backup/system-backup-$(date +%Y%m%d)/
+sudo du -sh /home/* > ~/btrfs-conversion-current-config-backup/home-sizes.backup
+sudo du -sh /var/log > ~/btrfs-conversion-current-config-backup/log-size.backup
+sudo du -sh /var/cache > ~/btrfs-conversion-current-config-backup/cache-size.backup
+sudo du -sh /var/lib/libvirt/images 2>/dev/null > ~/btrfs-conversion-current-config-backup/libvirt-images-size.backup || echo "No libvirt images" > ~/btrfs-conversion-current-config-backup/libvirt-images-size.backup
 ```
 
-### 1.3 Verify EFI Mount Point
+#### 1.2.4 Verify and Document EFI Mount Point
 
 ```bash
-# Verify EFI partition is mounted at /boot/efi (standard for Ubuntu)
-findmnt /boot/efi
-# Should show: /boot/efi mounted from /dev/nvme0n1p1 (vfat)
+# Document EFI configuration
+{
+    echo "=== EFI Mount Point Information ==="
+    echo ""
+    echo "All EFI mounts:"
+    EFI_MOUNT=$(mount | grep -i efi)
+    echo "$EFI_MOUNT"
+    echo ""
 
-# If not mounted at /boot/efi, note the actual mount point
-mount | grep -i efi
+    # Extract the mount point from the grep output
+    EFI_MOUNTPOINT=$(echo "$EFI_MOUNT" | awk '{print $3}' | head -1)
+    if [ -n "$EFI_MOUNTPOINT" ]; then
+        echo "Detected EFI mount point: $EFI_MOUNTPOINT"
+        echo ""
+        echo "Details for $EFI_MOUNTPOINT:"
+        findmnt "$EFI_MOUNTPOINT"
+    else
+        echo "WARNING: No EFI partition mounted!"
+    fi
+} > ~/btrfs-conversion-current-config-backup/efi-config.backup
+
+# Display the configuration
+cat ~/btrfs-conversion-current-config-backup/efi-config.backup
 ```
 
-**Note:** This guide assumes the standard Ubuntu EFI mount point `/boot/efi`, mounted from `/dev/nvme0n1p1`. If yours differs, you'll need to adjust the commands in Phase 4.5 and Phase 6.4 accordingly.
+**Expected:** The EFI partition should be mounted at `/boot/efi` from `/dev/nvme0n1p1` (standard for Ubuntu). If yours differs, you'll need to adjust the commands in Phase 4.5 and Phase 6.4 accordingly.
 
-### 1.4 Check Current Swapfile
+#### 1.2.5 Check and Document Current Swapfile
 
 ```bash
-# Check if swapfile exists and note its size
-ls -lh /swap.img
+# Document swapfile configuration
+{
+    echo "=== Swapfile Information ==="
+    echo ""
+    echo "Current swapfile:"
+    ls -lh /swap.img
+    echo ""
+    echo "All swap devices:"
+    swapon --show
+} > ~/btrfs-conversion-current-config-backup/swapfile-config.backup
+
+# Display the configuration
+cat ~/btrfs-conversion-current-config-backup/swapfile-config.backup
 ```
 
-**Note:** Note the size. You'll need it when recreating the swapfile in Phase 4.4.
+**Note:** Note the swapfile size from the output. You'll need it when recreating the swapfile in Phase 4.4.
 
-### 1.5 Prepare Live USB
+#### 1.2.6 Copy All Documentation to Backup
+
+After completing all documentation steps above, copy the entire directory to your NAS backup:
+
+```bash
+# Keep these files safe - copy entire directory to NAS backup
+cp -a ~/btrfs-conversion-current-config-backup /mnt/backup/system-backup-$(date +%Y%m%d)/
+
+# Verify files were copied
+ls -la /mnt/backup/system-backup-$(date +%Y%m%d)/btrfs-conversion-current-config-backup/
+```
+
+### 1.3 Prepare Live USB
 
 Download Ubuntu live USB matching your system version:
 
@@ -463,7 +528,7 @@ sudo diff -rq --no-dereference /mnt/btrfs/var /mnt/new/var
 
 The old swapfile (`/swap.img` at top-level) was deleted in step 4.2d. Create a new swapfile in the @swap subvolume.
 
-Check what size swapfile you had (from Phase 1.4 notes).
+Check what size swapfile you had (from Phase 1.2.5 documentation).
 Typical sizes: 8G, 16G, or equal to RAM size
 
 **Option 1: Modern btrfs-native method (recommended):**
@@ -497,7 +562,7 @@ lsattr /mnt/new/swap/swap.img
 
 ### 4.5 Mount EFI Partition
 
-Check you EFI partition and mount point (from Phase 1.3 notes). This guide assumes `/dev/nvme0n1p1` is mounted as `/boot/efi`.
+Check your EFI partition and mount point (from Phase 1.2.4 documentation). This guide assumes `/dev/nvme0n1p1` is mounted as `/boot/efi`.
 
 ```bash
 # Mount EFI partition into new @ subvolume
@@ -645,7 +710,7 @@ grep "rootflags=subvol=@" /boot/grub/grub.cfg
 
 ### 6.4 Reinstall GRUB to EFI
 
-Check you EFI mount point (from Phase 1.3 notes). This guide assumes `/boot/efi`.
+Check your EFI mount point (from Phase 1.2.4 documentation). This guide assumes `/boot/efi`.
 
 Still inside chroot:
 
@@ -1289,6 +1354,6 @@ sudo crontab -e
 4. **Verify everything before rebooting** - Use the verification checklist
 5. **Monitor the system** for at least 1-2 weeks before cleanup
 6. **Set up regular snapshots** to benefit from the new layout
-7. **Document your EFI partition and mount point** before starting (from Phase 1.3)
-8. **Document your swapfile size** before starting (from Phase 1.4)
+7. **Document your EFI partition and mount point** before starting (from Phase 1.2.4)
+8. **Document your swapfile size** before starting (from Phase 1.2.5)
 9. **Test snapshot restoration** after migration to ensure it works
