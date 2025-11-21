@@ -657,7 +657,8 @@ Replace ALL btrfs entries with the following (keep any non-btrfs mounts like EFI
 
 ```fstab
 # Btrfs subvolumes - flat layout
-UUID=bae81b8a-6999-4457-827b-e30341b338ff /                    btrfs subvol=@,ssd,discard=async,space_cache=v2 0 0
+# Root filesystem: mounted as default subvolume (set via btrfs subvolume set-default)
+UUID=bae81b8a-6999-4457-827b-e30341b338ff /                    btrfs ssd,discard=async,space_cache=v2 0 0
 UUID=bae81b8a-6999-4457-827b-e30341b338ff /home                btrfs subvol=@home,ssd,discard=async,space_cache=v2 0 0
 UUID=bae81b8a-6999-4457-827b-e30341b338ff /var/log             btrfs subvol=@var_log,ssd,discard=async,space_cache=v2,nodatacow 0 0
 UUID=bae81b8a-6999-4457-827b-e30341b338ff /var/cache           btrfs subvol=@var_cache,ssd,discard=async,space_cache=v2 0 0
@@ -683,39 +684,68 @@ cat /mnt/new/etc/fstab | grep UUID
 ```
 
 **Key points:**
+- Root filesystem: Mounted as the **default subvolume** (controlled via `btrfs subvolume set-default`), not explicitly named in fstab
+- Other subvolumes (`@home`, `@var_log`, etc.) use explicit `subvol=` options so they don't follow the default
 - NOCOW is set as a property on `@var_log`, `@libvirt_images`, and `@swap` subvolumes (done in Phase 3)
 - All files in those subvolumes automatically inherit NOCOW, regardless of mount options
-- Each subvolume specified with `subvol=@name` format
 - Only VM disk images are in the @libvirt_images subvolume (mounted at /var/lib/libvirt/images)
 - Swapfile path changed from `/swap.img` to `/swap/swap.img` (now in separate subvolume)
 - **CRITICAL:** UUIDs in fstab must match your actual system UUIDs from `blkid`
 
-### 5.2 Update GRUB Configuration
+### 5.2 Set Default Subvolume
 
-Edit GRUB default config to add rootflags:
+Set @ as the default subvolume so it's automatically mounted as root:
 
 ```bash
-sudo nano /mnt/new/etc/default/grub
+# Set @ as the default subvolume
+sudo btrfs subvolume set-default /mnt/btrfs/@
+
+# Verify it was set
+sudo btrfs subvolume get-default /mnt/btrfs
+# Should show: ID <subvol_id> gen <gen_num> top level <level> path @
 ```
 
-Find the `GRUB_CMDLINE_LINUX_DEFAULT` line and add `rootflags=subvol=@`:
+No GRUB or kernel command-line flags are needed. The root filesystem will be mounted automatically as the default subvolume.
 
-**Before:**
+### 5.3 Patch GRUB Script to Disable Automatic Subvolume Detection
+
+Ubuntu's GRUB script (`/etc/grub.d/10_linux`) automatically detects btrfs subvolumes and adds `rootflags=subvol=@` to the kernel command line when regenerating GRUB config. This conflicts with using `btrfs set-default`, so we need to disable this behavior before running `update-grub` from chroot.
+
+**While still in the live environment, patch the script:**
+
 ```bash
-GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"
+sudo nano /mnt/new/etc/grub.d/10_linux
 ```
 
-**After:**
+**Find lines 130-136** (the btrfs case statement):
+
 ```bash
-GRUB_CMDLINE_LINUX_DEFAULT="quiet splash rootflags=subvol=@"
+case x"$GRUB_FS" in
+    xbtrfs)
+	rootsubvol="`make_system_path_relative_to_its_root /`"
+	rootsubvol="${rootsubvol#/}"
+	if [ "x${rootsubvol}" != x ]; then
+	    GRUB_CMDLINE_LINUX="rootflags=subvol=${rootsubvol} ${GRUB_CMDLINE_LINUX}"
+	fi;;
 ```
 
-If there's a `GRUB_CMDLINE_LINUX` line, update it too:
+**Comment it out:**
+
 ```bash
-GRUB_CMDLINE_LINUX="rootflags=subvol=@"
+case x"$GRUB_FS" in
+    xbtrfs)
+	# Disabled: using btrfs set-default instead of explicit rootflags
+	# rootsubvol="`make_system_path_relative_to_its_root /`"
+	# rootsubvol="${rootsubvol#/}"
+	# if [ "x${rootsubvol}" != x ]; then
+	#     GRUB_CMDLINE_LINUX="rootflags=subvol=${rootsubvol} ${GRUB_CMDLINE_LINUX}"
+	# fi
+	;;
 ```
 
 Save and exit (Ctrl+O, Enter, Ctrl+X in nano).
+
+This ensures that when `grub-mkconfig` is run in Phase 6.3, it won't automatically re-add `rootflags=subvol=@`.
 
 ---
 
