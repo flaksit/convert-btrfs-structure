@@ -13,7 +13,7 @@
 
 ## Conversion Overview
 
-Your system currently boots from the btrfs top-level subvolume (subvolid=5). Although @ and @home subvolumes exist, they are not being used - all your data lives at the top level. This Conversion will:
+Your system currently boots from the btrfs top-level subvolume (subvolid=5). Although @ and @home subvolumes exist, they are not being used - all your data lives at the top level. This conversion will:
 
 1. Delete or rename the existing unused @ and @home subvolumes
 2. Create fresh subvolumes: @, @home, @var_log, @var_cache, @libvirt_images, @swap, @snapshots
@@ -22,16 +22,16 @@ Your system currently boots from the btrfs top-level subvolume (subvolid=5). Alt
 5. Enable snapshot-based rollback capability
 
 **Timeline:** 2-4 hours depending on disk speed
-**Downtime:** System will be offline during Conversion
+**Downtime:** System will be offline during conversion
 **Risk level:** Medium (bootloader changes involved)
 
-**Important:** Before starting the Conversion, it's recommended to have this repository checked out somewhere on your system (e.g., `/home/user/convert-btrfs-structure`). This way, when you boot into the Live USB environment and mount your filesystem at `/mnt/btrfs`, the Conversion scripts will be available at `/mnt/btrfs/home/user/convert-btrfs-structure/`, making it much easier to execute the Conversion steps without typing long commands manually.
+**Important:** Before starting the donversion, it's recommended to have this repository checked out somewhere on your system (e.g., `/home/user/convert-btrfs-structure`). This way, when you boot into the Live USB environment and mount your filesystem at `/mnt/btrfs`, the conversion scripts will be available at `/mnt/btrfs/home/user/convert-btrfs-structure/`, making it much easier to execute the conversion steps without typing long commands manually.
 
 ---
 
 ## Target Subvolume Structure
 
-After Conversion, your filesystem will have this layout:
+After conversion, your filesystem will have this layout:
 
 ```plain
 Subvolume         Mount Point              Purpose
@@ -124,7 +124,7 @@ sudo ./1.2-document-current-config.sh
 This script will:
 1. Save configuration files (fstab, GRUB configs)
 2. Document current system state (mounts, subvolumes, disk usage)
-3. Record directory sizes for Conversion planning
+3. Record directory sizes for conversion planning
 4. Document EFI mount point configuration
 5. Document swapfile configuration
 6. Optionally copy all documentation to your NAS backup
@@ -239,7 +239,7 @@ lsb_release -a
 # sudo dd if=ubuntu-*.iso of=/dev/sdX bs=4M status=progress oflag=sync
 ```
 
-**Note:** You'll boot into this live environment for the Conversion.
+**Note:** You'll boot into this live environment for the conversion.
 
 ---
 
@@ -294,19 +294,19 @@ Before making any destructive changes, create a snapshot of the current top-leve
 
 ```bash
 # Create read-only snapshot of entire top-level as safety net
-sudo btrfs subvolume snapshot -r /mnt/btrfs /mnt/btrfs/backup-pre-Conversion
+sudo btrfs subvolume snapshot -r /mnt/btrfs /mnt/btrfs/backup-pre-conversion
 
 # Verify snapshot was created
 sudo btrfs subvolume list /mnt/btrfs
-# Should show: backup-pre-Conversion
+# Should show: backup-pre-conversion
 
 # Check snapshot size (should be near-instant, metadata only)
-sudo btrfs subvolume show /mnt/btrfs/backup-pre-Conversion
+sudo btrfs subvolume show /mnt/btrfs/backup-pre-conversion
 ```
 
-**Purpose:** This snapshot provides a fast rollback option on the disk itself. While you have an external NAS backup, restoring 150GB+ over network is slow. This snapshot allows near-instant recovery if Conversion commands fail.
+**Purpose:** This snapshot provides a fast rollback option on the disk itself. While you have an external NAS backup, restoring 150GB+ over network is slow. This snapshot allows near-instant recovery if conversion commands fail.
 
-**To rollback using this snapshot:** If something goes wrong during Conversion, you can delete failed subvolumes and the snapshot remains intact as a reference of your original state.
+**To rollback using this snapshot:** If something goes wrong during conversion, you can delete failed subvolumes and the snapshot remains intact as a reference of your original state.
 
 ---
 
@@ -510,7 +510,7 @@ sudo rm -f /mnt/new/swap.img
 
 # Note: dev, proc, sys, run, tmp, mnt, media directories are preserved as copied
 # They will be populated/mounted normally at boot time
-# This preserves the exact filesystem structure for true Conversion
+# This preserves the exact filesystem structure for true conversion
 ```
 
 #### Explanation
@@ -529,7 +529,7 @@ Before proceeding, verify that the copy operations completed successfully by com
 **Script available:** If you have this repository checked out, you can run:
 ```bash
 cd /mnt/btrfs/home/user/convert-btrfs-structure  # Adjust path as needed
-sudo ./4.3-verify-data-Conversion.sh
+sudo ./4.3-verify-data-conversion.sh
 ```
 
 **Manual commands:**
@@ -722,11 +722,11 @@ sudo nano /mnt/new/etc/grub.d/10_linux
 ```bash
 case x"$GRUB_FS" in
     xbtrfs)
-	rootsubvol="`make_system_path_relative_to_its_root /`"
-	rootsubvol="${rootsubvol#/}"
-	if [ "x${rootsubvol}" != x ]; then
-	    GRUB_CMDLINE_LINUX="rootflags=subvol=${rootsubvol} ${GRUB_CMDLINE_LINUX}"
-	fi;;
+    rootsubvol="`make_system_path_relative_to_its_root /`"
+    rootsubvol="${rootsubvol#/}"
+    if [ "x${rootsubvol}" != x ]; then
+        GRUB_CMDLINE_LINUX="rootflags=subvol=${rootsubvol} ${GRUB_CMDLINE_LINUX}"
+    fi;;
 ```
 
 **Comment it out:**
@@ -734,13 +734,13 @@ case x"$GRUB_FS" in
 ```bash
 case x"$GRUB_FS" in
     xbtrfs)
-	# Disabled: using btrfs set-default instead of explicit rootflags
-	# rootsubvol="`make_system_path_relative_to_its_root /`"
-	# rootsubvol="${rootsubvol#/}"
-	# if [ "x${rootsubvol}" != x ]; then
-	#     GRUB_CMDLINE_LINUX="rootflags=subvol=${rootsubvol} ${GRUB_CMDLINE_LINUX}"
-	# fi
-	;;
+    # Disabled: using btrfs set-default instead of explicit rootflags
+    # rootsubvol="`make_system_path_relative_to_its_root /`"
+    # rootsubvol="${rootsubvol#/}"
+    # if [ "x${rootsubvol}" != x ]; then
+    #     GRUB_CMDLINE_LINUX="rootflags=subvol=${rootsubvol} ${GRUB_CMDLINE_LINUX}"
+    # fi
+    ;;
 ```
 
 Save and exit (Ctrl+O, Enter, Ctrl+X in nano).
@@ -822,7 +822,7 @@ This happens because:
 3. However, **GRUB still successfully installs the bootloader files** to the EFI partition
 
 Why this is fine in most cases:  
-Since your system was already booting via UEFI before the Conversion, the UEFI firmware already has a boot entry pointing to `/boot/efi/EFI/ubuntu/grubx64.efi`. The warning only means the chroot can't update EFI variables - but the files were written successfully, and the existing firmware entry remains valid.
+Since your system was already booting via UEFI before the conversion, the UEFI firmware already has a boot entry pointing to `/boot/efi/EFI/ubuntu/grubx64.efi`. The warning only means the chroot can't update EFI variables - but the files were written successfully, and the existing firmware entry remains valid.
 
 **Verification that installation succeeded:**
 
@@ -1043,10 +1043,10 @@ After verifying everything works, create your first snapshot:
 
 ```bash
 # Create read-only snapshot of root
-sudo btrfs subvolume snapshot -r / /.snapshots/root-Conversion-success-$(date +%Y%m%d)
+sudo btrfs subvolume snapshot -r / /.snapshots/root-conversion-success-$(date +%Y%m%d)
 
 # Create snapshot of home (optional)
-sudo btrfs subvolume snapshot -r /home /.snapshots/home-Conversion-success-$(date +%Y%m%d)
+sudo btrfs subvolume snapshot -r /home /.snapshots/home-conversion-success-$(date +%Y%m%d)
 
 # List snapshots
 sudo btrfs subvolume list /.snapshots
@@ -1071,8 +1071,8 @@ After confirming stable operation:
 sudo mkdir -p /mnt/btrfs
 sudo mount -t btrfs -o subvolid=5 /dev/nvme0n1p5 /mnt/btrfs
 
-# Remove the pre-Conversion safety snapshot
-sudo btrfs subvolume delete /mnt/btrfs/backup-pre-Conversion
+# Remove the pre-conversion safety snapshot
+sudo btrfs subvolume delete /mnt/btrfs/backup-pre-conversion
 
 # Unmount
 sudo umount /mnt/btrfs
@@ -1300,13 +1300,13 @@ If system is completely broken:
      --exclude='/lost+found' --exclude='/swap.img'
    ```
 
-5. **Reboot** - system should boot from top-level as before Conversion
+5. **Reboot** - system should boot from top-level as before conversion
 
 ---
 
 ## Post-Conversion: Snapshot Management
 
-After successful Conversion, set up regular snapshots:
+After successful conversion, set up regular snapshots:
 
 ### Option 1: Manual Snapshots
 
@@ -1431,11 +1431,11 @@ sudo crontab -e
 ## Important Reminders
 
 1. **DO NOT skip the backup step** - If something goes wrong, you'll need it
-2. **Keep the live USB handy** for at least 2 weeks after Conversion
+2. **Keep the live USB handy** for at least 2 weeks after conversion
 3. **The copy operations are fast** - CoW reflinks make cp -a essentially instant; entire Phase 4 should complete in seconds
 4. **Verify everything before rebooting** - Use the verification checklist
 5. **Monitor the system** for at least 1-2 weeks before cleanup
 6. **Set up regular snapshots** to benefit from the new layout
 7. **Document your EFI partition and mount point** before starting (from Phase 1.2.4)
 8. **Document your swapfile size** before starting (from Phase 1.2.5)
-9. **Test snapshot restoration** after Conversion to ensure it works
+9. **Test snapshot restoration** after conversion to ensure it works
